@@ -28,7 +28,7 @@ pub mod types;
 pub use error::{DecodeError, EncodeError};
 pub use ethernet::{EthernetHeader, LLDP_ETHERTYPE, LldpDestination, MacAddr};
 pub use lldpdu::{DecodeReport, DecodeWarning, Decoded, Lldpdu, Tlv};
-pub use org::OrgTlv;
+pub use org::{DecodedOrgTlv, OrgTlv};
 pub use types::{
     AddressFamily, Capability, ChassisId, ChassisIdSubtype, InterfaceNumbering, ManagementAddress,
     NetworkAddress, PortId, PortIdSubtype, SystemCapabilities,

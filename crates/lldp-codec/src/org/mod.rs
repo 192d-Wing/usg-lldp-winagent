@@ -55,3 +55,49 @@ impl OrgTlv {
         Ok(())
     }
 }
+
+pub mod ieee8021;
+pub mod ieee8023;
+pub mod med;
+
+/// An organizationally specific TLV interpreted by one of the known
+/// decoders, or left raw.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DecodedOrgTlv<'a> {
+    /// IEEE 802.1 TLV (OUI 00-80-C2).
+    Ieee8021(ieee8021::Ieee8021Tlv),
+    /// IEEE 802.3 TLV (OUI 00-12-0F).
+    Ieee8023(ieee8023::Ieee8023Tlv),
+    /// LLDP-MED TLV (OUI 00-12-BB).
+    Med(med::MedTlv),
+    /// A known OUI but a subtype or encoding the decoder does not accept.
+    Unrecognized(&'a OrgTlv),
+    /// An OUI this crate has no decoder for.
+    Unknown(&'a OrgTlv),
+}
+
+impl OrgTlv {
+    /// Interprets the TLV with the decoder for its OUI, if any.
+    pub fn decode(&self) -> DecodedOrgTlv<'_> {
+        match self.oui {
+            oui::IEEE_802_1 => ieee8021::Ieee8021Tlv::decode(self.subtype, &self.data)
+                .map_or(DecodedOrgTlv::Unrecognized(self), DecodedOrgTlv::Ieee8021),
+            oui::IEEE_802_3 => ieee8023::Ieee8023Tlv::decode(self.subtype, &self.data)
+                .map_or(DecodedOrgTlv::Unrecognized(self), DecodedOrgTlv::Ieee8023),
+            oui::TIA_MED => med::MedTlv::decode(self.subtype, &self.data)
+                .map_or(DecodedOrgTlv::Unrecognized(self), DecodedOrgTlv::Med),
+            _ => DecodedOrgTlv::Unknown(self),
+        }
+    }
+}
+
+pub(crate) fn u16_at(b: &[u8], at: usize) -> Option<u16> {
+    crate::ethernet::read_u16(b, at)
+}
+
+pub(crate) fn u32_at(b: &[u8], at: usize) -> Option<u32> {
+    let end = at.checked_add(4)?;
+    let s: [u8; 4] = b.get(at..end)?.try_into().ok()?;
+    Some(u32::from_be_bytes(s))
+}
