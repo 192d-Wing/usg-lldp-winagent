@@ -1,0 +1,76 @@
+# WinLLDP configuration, schema version 1.
+# Every setting is optional except `version`; the values shown are the
+# defaults. Validate with: winlldp config validate
+version: 1
+
+agent:
+  enabled: true
+
+lldp:
+  # IEEE 802.1AB timers (msgTxInterval, msgTxHold, msgFastTx, txFastInit,
+  # txCreditMax, reinitDelay). TTL = transmit_interval * hold_multiplier + 1.
+  transmit_interval: 30
+  hold_multiplier: 4
+  fast_tx_interval: 1
+  fast_tx_count: 4
+  tx_credit_max: 5
+  reinit_delay: 2
+  max_neighbors_per_interface: 8
+
+  # Chassis ID: hostname | smbios_uuid | mac | custom
+  chassis_id:
+    source: hostname
+    # value: "WS-12345"   # only with source: custom
+
+  # Port ID: mac | interface_name
+  port_id: mac
+
+  advertise:
+    port_description: true
+    adapter_description: true
+    system_name: true
+    system_name_fqdn: true
+    system_description: true
+    os_version: true
+    hardware: false
+    system_capabilities: true
+    bridge_capability: false
+    management_address: true
+
+  # system_name_override: "WS-12345"
+  # system_description_override: "Managed workstation"
+
+  management_addresses:
+    ipv4: true
+    ipv6: true
+    allow_temporary_ipv6: false
+    allow_link_local: false
+    max_per_interface: 2
+    pinned: []
+
+interfaces:
+  default_mode: rx_tx     # physical Ethernet: disabled | rx_only | tx_only | rx_tx
+  wifi: disabled
+  virtual: disabled
+  exclude:
+    - "vEthernet*"
+    - "VPN*"
+    - "Loopback*"
+  overrides: []
+  #  - match: "Ethernet 2"
+  #    mode: rx_only
+  #    port_description: "Lab bench port"
+  #  - match: "guid:{00000000-0000-0000-0000-000000000000}"
+  #    mode: disabled
+
+logging:
+  level: info
+  windows_event_log: true
+  event_rate_limit_per_minute: 60
+
+ipc:
+  enabled: true
+  read_group: "S-1-5-11"   # Authenticated Users
+
+windows:
+  manage_mslldp_binding: true

@@ -42,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [lldpdu_decode, tlv_parse, org_tlv_parse, frame_parse]
+        target: [lldpdu_decode, tlv_parse, org_tlv_parse, frame_parse, config_parse]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly

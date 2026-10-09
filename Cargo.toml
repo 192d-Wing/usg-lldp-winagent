@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lldp-codec", "crates/lldp-core"]
+members = ["crates/lldp-codec", "crates/lldp-core", "crates/lldp-config"]
 
 [workspace.package]
 version = "0.1.0"
@@ -39,3 +39,6 @@ strip = "symbols"
 [workspace.dependencies]
 lldp-codec = { path = "crates/lldp-codec" }
 tokio = { version = "1.47", default-features = false }
+lldp-core = { path = "crates/lldp-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml_ng = "0.10"

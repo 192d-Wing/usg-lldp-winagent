@@ -1,0 +1,17 @@
+[package]
+name = "lldp-config"
+description = "Versioned YAML configuration schema, validation, interface matching, and policy overrides for WinLLDP."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+lldp-core.workspace = true
+serde.workspace = true
+serde_yaml_ng.workspace = true
+
+[lints]
+workspace = true
