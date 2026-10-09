@@ -1,0 +1,27 @@
+[package]
+name = "winlldp-cli"
+description = "WinLLDP administration command-line tool."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "winlldp"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+lldp-config.workspace = true
+lldp-ipc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "time", "net", "io-util"] }
+
+[target.'cfg(windows)'.dependencies]
+lldp-windows.workspace = true
+
+[lints]
+workspace = true

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lldp-codec", "crates/lldp-core", "crates/lldp-config", "crates/lldp-windows", "crates/lldp-ipc", "apps/winlldp-service"]
+members = ["crates/lldp-codec", "crates/lldp-core", "crates/lldp-config", "crates/lldp-windows", "crates/lldp-ipc", "apps/winlldp-service", "apps/winlldp-cli"]
 
 [workspace.package]
 version = "0.1.0"

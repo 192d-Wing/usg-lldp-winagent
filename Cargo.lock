@@ -557,6 +557,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "winlldp-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "lldp-config",
+ "lldp-ipc",
+ "lldp-windows",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "winlldp-service"
 version = "0.1.0"
 dependencies = [
