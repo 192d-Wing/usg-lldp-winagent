@@ -1,0 +1,22 @@
+[package]
+name = "lldp-ipc"
+description = "WinLLDP local IPC contract: versioned JSON request/response types, length-prefixed framing, and dispatch."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+lldp-codec.workspace = true
+lldp-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["io-util"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["io-util", "rt", "macros", "net"] }
+
+[lints]
+workspace = true

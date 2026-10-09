@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lldp-codec", "crates/lldp-core", "crates/lldp-config", "crates/lldp-windows"]
+members = ["crates/lldp-codec", "crates/lldp-core", "crates/lldp-config", "crates/lldp-windows", "crates/lldp-ipc"]
 
 [workspace.package]
 version = "0.1.0"
@@ -44,3 +44,5 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml_ng = "0.10"
 lldp-config = { path = "crates/lldp-config" }
 windows = "0.62"
+lldp-ipc = { path = "crates/lldp-ipc" }
+serde_json = "1.0"
