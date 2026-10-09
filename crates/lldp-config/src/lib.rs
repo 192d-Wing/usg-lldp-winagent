@@ -11,6 +11,7 @@ pub mod schema;
 
 use core::fmt;
 
+pub use lldp_core::InterfaceKind;
 pub use schema::*;
 
 /// Why a configuration was rejected.
@@ -258,19 +259,6 @@ fn check_opt_str(v: &mut Vec<Violation>, path: &str, s: Option<&str>) {
             message: "must be 1 to 255 bytes".into(),
         });
     }
-}
-
-/// Classification of a network interface supplied by the platform crate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InterfaceKind {
-    /// Physical 802.3 adapter (including USB and dock Ethernet).
-    PhysicalEthernet,
-    /// 802.11 adapter.
-    Wifi,
-    /// Hyper-V, bridge, team, or other software adapter.
-    Virtual,
-    /// Loopback, tunnel, VPN, cellular, anything else.
-    Other,
 }
 
 /// The outcome of matching an interface against the configuration.

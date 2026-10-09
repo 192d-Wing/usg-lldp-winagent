@@ -10,9 +10,14 @@
 //! - [`packet_io`]: the trait a packet backend implements, plus a mock.
 //! - [`runtime`]: a Tokio task that drives a [`port::Port`] over a
 //!   [`packet_io::PacketChannel`].
+//! - [`interface`]: platform-neutral interface descriptions.
+//! - [`agent`]: one port task per managed interface, driven by interface
+//!   changes and a policy [`agent::Resolver`].
 
 #![forbid(unsafe_code)]
 
+pub mod agent;
+pub mod interface;
 pub mod local;
 pub mod neighbor;
 pub mod packet_io;
@@ -21,6 +26,8 @@ pub mod runtime;
 pub mod stats;
 pub mod timers;
 
+pub use agent::{Agent, AgentEvent, Decision, PortHooks, Resolver};
+pub use interface::{InterfaceChange, InterfaceInfo, InterfaceKind, UnicastAddress};
 pub use local::{LocalPort, LocalSystem};
 pub use neighbor::{Msap, Neighbor, NeighborTable};
 pub use packet_io::{PacketChannel, PacketIo, PacketIoError};

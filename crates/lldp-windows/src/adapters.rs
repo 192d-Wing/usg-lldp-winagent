@@ -4,7 +4,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use lldp_codec::MacAddr;
-use lldp_config::InterfaceKind;
+use lldp_core::{InterfaceInfo, InterfaceKind, UnicastAddress};
 use windows::Win32::NetworkManagement::IpHelper::{
     FreeMibTable, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST,
     GetAdaptersAddresses, GetIfTable2, IF_TYPE_ETHERNET_CSMACD, IF_TYPE_IEEE80211,
@@ -19,45 +19,6 @@ use windows::Win32::Networking::WinSock::{
 };
 
 use crate::util::{guid_string, wide_to_string};
-
-/// One unicast address with the attributes that matter for management
-/// address selection.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UnicastAddress {
-    /// The address.
-    pub addr: IpAddr,
-    /// RFC 8981 temporary address (`IpSuffixOriginRandom`).
-    pub temporary: bool,
-    /// Duplicate address detection completed and the address is usable.
-    pub preferred: bool,
-    /// Prefix length.
-    pub prefix_len: u8,
-}
-
-/// A network adapter as seen by Windows.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AdapterInfo {
-    /// Adapter GUID, `{...}` form, upper case. Stable for the adapter's life.
-    pub guid: String,
-    /// Interface LUID value.
-    pub luid: u64,
-    /// `ifIndex`.
-    pub if_index: u32,
-    /// User-visible alias, for example "Ethernet". Renamable.
-    pub alias: String,
-    /// Hardware description, for example "Intel(R) Ethernet Controller I225-LM".
-    pub description: String,
-    /// MAC address, if the adapter has one.
-    pub mac: Option<MacAddr>,
-    /// Media is connected (link up).
-    pub connected: bool,
-    /// Transmit link speed in bits per second, zero if unknown.
-    pub link_speed: u64,
-    /// Classification for configuration matching.
-    pub kind: InterfaceKind,
-    /// Unicast addresses.
-    pub addresses: Vec<UnicastAddress>,
-}
 
 /// Errors from adapter enumeration.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,7 +35,7 @@ impl std::error::Error for EnumerateError {}
 /// Enumerates every interface Windows knows about, including loopback and
 /// tunnels; the caller filters by `kind`.
 #[allow(unsafe_code)]
-pub fn enumerate() -> Result<Vec<AdapterInfo>, EnumerateError> {
+pub fn enumerate() -> Result<Vec<InterfaceInfo>, EnumerateError> {
     let mut adapters = Vec::new();
     let mut table: *mut MIB_IF_TABLE2 = std::ptr::null_mut();
     // SAFETY: GetIfTable2 allocates the table and stores its pointer in
@@ -106,7 +67,7 @@ pub fn enumerate() -> Result<Vec<AdapterInfo>, EnumerateError> {
             let mac = (row.PhysicalAddressLength == 6)
                 .then(|| MacAddr::from_slice(&row.PhysicalAddress))
                 .flatten();
-            adapters.push(AdapterInfo {
+            adapters.push(InterfaceInfo {
                 guid: guid_string(&row.InterfaceGuid),
                 luid: row.InterfaceLuid.Value,
                 if_index: row.InterfaceIndex,
@@ -126,7 +87,7 @@ pub fn enumerate() -> Result<Vec<AdapterInfo>, EnumerateError> {
 }
 
 #[allow(unsafe_code)]
-fn attach_addresses(adapters: &mut [AdapterInfo]) -> Result<(), EnumerateError> {
+fn attach_addresses(adapters: &mut [InterfaceInfo]) -> Result<(), EnumerateError> {
     let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
     let mut size: u32 = 16 * 1024;
     let mut buf: Vec<u8> = Vec::new();

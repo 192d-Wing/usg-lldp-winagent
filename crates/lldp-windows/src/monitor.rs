@@ -18,22 +18,9 @@ use windows::Win32::NetworkManagement::IpHelper::{
 };
 use windows::Win32::Networking::WinSock::AF_UNSPEC;
 
-use crate::adapters::{AdapterInfo, EnumerateError, enumerate};
+use lldp_core::{InterfaceChange, InterfaceInfo};
 
-/// What changed between two enumerations.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InterfaceEvent {
-    /// A new adapter appeared.
-    Added(AdapterInfo),
-    /// An adapter disappeared.
-    Removed(AdapterInfo),
-    /// Media connected.
-    LinkUp(AdapterInfo),
-    /// Media disconnected.
-    LinkDown(AdapterInfo),
-    /// Alias, description, addresses, or speed changed.
-    Changed(AdapterInfo),
-}
+use crate::adapters::{EnumerateError, enumerate};
 
 /// Registered system notifications. Cancelled on drop.
 pub struct Subscription {
@@ -143,40 +130,40 @@ impl Drop for Subscription {
 /// Keeps a snapshot and produces events on each refresh.
 #[derive(Debug, Default)]
 pub struct Differ {
-    current: BTreeMap<String, AdapterInfo>,
+    current: BTreeMap<String, InterfaceInfo>,
 }
 
 impl Differ {
     /// Replaces the snapshot with `fresh` and returns what changed.
-    pub fn update(&mut self, fresh: Vec<AdapterInfo>) -> Vec<InterfaceEvent> {
+    pub fn update(&mut self, fresh: Vec<InterfaceInfo>) -> Vec<InterfaceChange> {
         let mut events = Vec::new();
         let mut next = BTreeMap::new();
         for a in fresh {
             match self.current.remove(&a.guid) {
-                None => events.push(InterfaceEvent::Added(a.clone())),
+                None => events.push(InterfaceChange::Added(a.clone())),
                 Some(old) => {
                     if old.connected != a.connected {
                         events.push(if a.connected {
-                            InterfaceEvent::LinkUp(a.clone())
+                            InterfaceChange::LinkUp(a.clone())
                         } else {
-                            InterfaceEvent::LinkDown(a.clone())
+                            InterfaceChange::LinkDown(a.clone())
                         });
                     } else if old != a {
-                        events.push(InterfaceEvent::Changed(a.clone()));
+                        events.push(InterfaceChange::Changed(a.clone()));
                     }
                 }
             }
             next.insert(a.guid.clone(), a);
         }
         for (_, gone) in std::mem::take(&mut self.current) {
-            events.push(InterfaceEvent::Removed(gone));
+            events.push(InterfaceChange::Removed(gone));
         }
         self.current = next;
         events
     }
 
     /// Current snapshot.
-    pub fn adapters(&self) -> impl Iterator<Item = &AdapterInfo> {
+    pub fn adapters(&self) -> impl Iterator<Item = &InterfaceInfo> {
         self.current.values()
     }
 }
@@ -186,7 +173,7 @@ impl Differ {
 pub async fn run(
     sub: Subscription,
     settle: Duration,
-    out: tokio::sync::mpsc::Sender<InterfaceEvent>,
+    out: tokio::sync::mpsc::Sender<InterfaceChange>,
 ) -> Result<(), EnumerateError> {
     let mut differ = Differ::default();
     for e in differ.update(enumerate()?) {
