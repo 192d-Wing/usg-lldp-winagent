@@ -9,6 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+lldp-codec.workspace = true
 lldp-core.workspace = true
 serde.workspace = true
 serde_yaml_ng.workspace = true

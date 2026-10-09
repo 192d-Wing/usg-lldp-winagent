@@ -563,6 +563,15 @@ impl From<Ipv6Addr> for NetworkAddress {
     }
 }
 
+impl From<std::net::IpAddr> for NetworkAddress {
+    fn from(a: std::net::IpAddr) -> Self {
+        match a {
+            std::net::IpAddr::V4(v) => Self::Ipv4(v),
+            std::net::IpAddr::V6(v) => Self::Ipv6(v),
+        }
+    }
+}
+
 impl fmt::Debug for NetworkAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, f)

@@ -7,11 +7,13 @@
 #![forbid(unsafe_code)]
 
 mod glob;
+pub mod resolver;
 pub mod schema;
 
 use core::fmt;
 
 pub use lldp_core::InterfaceKind;
+pub use resolver::{ConfigResolver, SystemFacts, select_management_addresses};
 pub use schema::*;
 
 /// Why a configuration was rejected.
