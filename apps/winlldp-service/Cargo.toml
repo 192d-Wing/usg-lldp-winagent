@@ -1,0 +1,30 @@
+[package]
+name = "winlldp-service"
+description = "WinLLDP Windows Service executable."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "winlldp-service"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+lldp-codec.workspace = true
+lldp-config.workspace = true
+lldp-core.workspace = true
+lldp-ipc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
+
+[target.'cfg(windows)'.dependencies]
+lldp-windows.workspace = true
+windows-service.workspace = true
+
+[lints]
+workspace = true

@@ -55,6 +55,13 @@ pub fn sddl(read_group: &str) -> String {
 /// A security descriptor allocated by the system.
 struct SecurityDescriptor(PSECURITY_DESCRIPTOR);
 
+// SAFETY: the descriptor is immutable after creation and only read by the
+// pipe creation call; freeing happens once in Drop.
+#[allow(unsafe_code)]
+unsafe impl Send for SecurityDescriptor {}
+#[allow(unsafe_code)]
+unsafe impl Sync for SecurityDescriptor {}
+
 impl SecurityDescriptor {
     #[allow(unsafe_code)]
     fn from_sddl(sddl: &str) -> Result<Self, PipeError> {

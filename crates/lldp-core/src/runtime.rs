@@ -37,6 +37,10 @@ pub struct PortSnapshot {
     pub admin_status: AdminStatus,
     /// Link state.
     pub link_up: bool,
+    /// What the port currently advertises.
+    pub local_lldpdu: lldp_codec::Lldpdu,
+    /// Source MAC of transmitted frames.
+    pub mac: lldp_codec::MacAddr,
     /// When the snapshot was taken, for converting `Instant`s.
     pub taken_at: std::time::Instant,
 }
@@ -96,6 +100,8 @@ pub async fn run_port(
                             stats: *port.stats(),
                             admin_status: port.admin_status(),
                             link_up: port.is_link_up(),
+                            local_lldpdu: port.local_lldpdu(),
+                            mac: port.mac(),
                             taken_at: now,
                         });
                         Vec::new()
