@@ -1,0 +1,22 @@
+<Project Sdk="WixToolset.Sdk/7.0.0">
+  <!--
+    Build: dotnet build packaging/wix/WinLLDP.wixproj -c Release -p:Platform=x64 -p:BinDir=<dir with built exes> -p:ProductVersion=0.1.0
+    WiX v7 requires accepting the Open Source Maintenance Fee EULA once per
+    machine: `wix eula accept wix7`. This project does not generate revenue
+    and is not subject to the fee (docs/licensing.md).
+  -->
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <Platforms>x64;arm64</Platforms>
+    <InstallerPlatform>$(Platform)</InstallerPlatform>
+    <OutputName>WinLLDP-$(ProductVersion)-$(Platform)</OutputName>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">0.1.0</ProductVersion>
+    <BinDir Condition="'$(BinDir)' == ''">..\..\target\release</BinDir>
+    <RepoRoot>..\..</RepoRoot>
+    <DefineConstants>ProductVersion=$(ProductVersion);BinDir=$(BinDir);RepoRoot=$(RepoRoot)</DefineConstants>
+    <SuppressValidation>false</SuppressValidation>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.Util.wixext" Version="7.0.0" />
+  </ItemGroup>
+</Project>

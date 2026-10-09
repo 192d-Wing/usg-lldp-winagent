@@ -35,6 +35,52 @@ jobs:
           cargo clippy --workspace --all-targets --target x86_64-pc-windows-msvc
           cargo check --workspace --target aarch64-pc-windows-msvc
 
+  powershell:
+    name: PowerShell module (Pester, ScriptAnalyzer)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Analyze
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $r = Invoke-ScriptAnalyzer -Path powershell/WinLldp -Recurse -Severity Warning,Error
+          $r | Format-Table -AutoSize
+          if ($r | Where-Object Severity -eq 'Error') { exit 1 }
+      - name: Test
+        shell: pwsh
+        run: |
+          Install-Module Pester -MinimumVersion 5.5 -Force -Scope CurrentUser
+          Invoke-Pester -Path powershell/WinLldp/tests -CI
+
+  msi:
+    name: MSI build (unsigned, x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99"
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p winlldp-service -p winlldp-cli
+      - name: Install WiX v7
+        run: |
+          dotnet tool install --global wix --version 7.0.0
+          wix eula accept wix7
+          wix extension add -g WixToolset.Util.wixext/7.0.0
+      - name: Build MSI
+        run: dotnet build packaging/wix/WinLLDP.wixproj -c Release -p:Platform=x64 -p:BinDir=${{ github.workspace }}\target\release -p:ProductVersion=0.0.0 -p:OutputPath=${{ github.workspace }}\dist\
+      - name: Smoke test binaries
+        shell: pwsh
+        run: |
+          .\target\release\winlldp.exe --version
+          .\target\release\winlldp.exe config validate examples\config.yaml
+          .\target\release\winlldp-service.exe validate --config examples\config.yaml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WinLLDP-ci-x64-unsigned
+          path: dist/*.msi
+
   deny:
     name: cargo deny
     runs-on: ubuntu-latest

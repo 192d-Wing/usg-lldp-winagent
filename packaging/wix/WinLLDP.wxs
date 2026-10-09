@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <!--
+    WinLLDP installer. Silent install:   msiexec /i WinLLDP-x.y.z-x64.msi /qn /l*v %TEMP%\WinLLDP-install.log
+                       Silent uninstall: msiexec /x WinLLDP-x.y.z-x64.msi /qn /l*v %TEMP%\WinLLDP-uninstall.log
+    Npcap is a prerequisite and is not bundled (docs/deployment.md).
+    Pass IGNORE_NPCAP=1 to install without it (the service then runs with
+    packet I/O disabled and reports Event ID 1100).
+  -->
+
+  <Package Name="WinLLDP"
+           Manufacturer="JHICS"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="3b8f0d2e-6c1a-4e7b-9f52-0a1b2c3d4e5f"
+           Scope="perMachine"
+           InstallerVersion="500"
+           Compressed="yes"
+           Language="1033">
+
+    <SummaryInformation Description="WinLLDP IEEE 802.1AB LLDP agent for Windows" Manufacturer="JHICS" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of WinLLDP is already installed."
+                  Schedule="afterInstallInitialize"
+                  AllowSameVersionUpgrades="yes" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Npcap prerequisite check -->
+    <Property Id="NPCAPFOUND">
+      <DirectorySearch Id="NpcapDirSearch" Path="[System64Folder]Npcap" Depth="0">
+        <FileSearch Id="NpcapDllSearch" Name="wpcap.dll" />
+      </DirectorySearch>
+    </Property>
+    <Property Id="IGNORE_NPCAP" Secure="yes" />
+    <Launch Condition="Installed OR NPCAPFOUND OR IGNORE_NPCAP"
+            Message="WinLLDP requires Npcap (https://npcap.com). Install Npcap first, or pass IGNORE_NPCAP=1 to install anyway." />
+
+    <!-- Only Windows 10 1809+/Server 2019+ have the APIs we use -->
+    <Launch Condition="Installed OR (VersionNT64 AND VersionNT &gt;= 603)"
+            Message="WinLLDP requires 64-bit Windows 11 or Windows Server 2022 or later." />
+
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/jhics/usg-lldp-winagent" />
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+
+    <Feature Id="Main" Title="WinLLDP" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="Binaries" />
+      <ComponentGroupRef Id="Configuration" />
+      <ComponentGroupRef Id="PowerShellModule" />
+      <ComponentGroupRef Id="EventSource" />
+    </Feature>
+
+    <!-- Apply restricted SID and minimal privileges after the service is registered -->
+    <SetProperty Id="HardenService" Value="&quot;[INSTALLFOLDER]winlldp-service.exe&quot; harden" Before="HardenService" Sequence="execute" />
+    <CustomAction Id="HardenService" DllEntry="WixQuietExec64" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" Execute="deferred" Impersonate="no" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="HardenService" After="InstallServices" Condition="NOT REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="WinLLDP" />
+      <Directory Id="WindowsPowerShellDir" Name="WindowsPowerShell">
+        <Directory Id="PSModulesDir" Name="Modules">
+          <Directory Id="WinLldpModuleDir" Name="WinLldp" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="ConfigDir" Name="WinLLDP" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="Binaries" Directory="INSTALLFOLDER">
+      <Component Id="ServiceExe" Guid="8c6b4e2a-1d3f-4a5b-8c9d-0e1f2a3b4c5d" Bitness="always64">
+        <File Id="ServiceExe" Source="$(var.BinDir)\winlldp-service.exe" KeyPath="yes" />
+        <ServiceInstall Id="WinLldpService"
+                        Name="WinLLDP"
+                        DisplayName="WinLLDP Link Layer Discovery Protocol Agent"
+                        Description="Advertises this workstation to directly connected switches with IEEE 802.1AB LLDP and records LLDP neighbors."
+                        Type="ownProcess"
+                        Start="auto"
+                        ErrorControl="normal"
+                        Account="LocalSystem"
+                        Arguments="--config &quot;[ConfigDir]config.yaml&quot;"
+                        Vital="yes">
+          <util:ServiceConfig FirstFailureActionType="restart"
+                              SecondFailureActionType="restart"
+                              ThirdFailureActionType="none"
+                              RestartServiceDelayInSeconds="10"
+                              ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="WinLldpServiceControl" Name="WinLLDP" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
+      <Component Id="CliExe" Guid="9d7c5f3b-2e4a-4b6c-9dae-1f2a3b4c5d6e" Bitness="always64">
+        <File Id="CliExe" Source="$(var.BinDir)\winlldp.exe" KeyPath="yes" />
+        <Environment Id="PathEntry" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" />
+      </Component>
+      <Component Id="LicenseFile" Guid="ae8d6a4c-3f5b-4c7d-aebf-2a3b4c5d6e7f" Bitness="always64">
+        <File Id="LicenseFile" Source="$(var.RepoRoot)\LICENSE" Name="LICENSE.txt" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="Configuration" Directory="ConfigDir">
+      <!-- NeverOverwrite keeps an administrator's edited file across upgrades -->
+      <Component Id="ConfigFile" Guid="bf9e7b5d-4a6c-4d8e-bfca-3b4c5d6e7f80" NeverOverwrite="yes" Bitness="always64">
+        <File Id="ConfigFile" Source="$(var.RepoRoot)\examples\config.yaml" Name="config.yaml" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="PowerShellModule" Directory="WinLldpModuleDir">
+      <Component Id="PsManifest" Guid="c0af8c6e-5b7d-4e9f-80db-4c5d6e7f8091" Bitness="always64">
+        <File Id="PsManifest" Source="$(var.RepoRoot)\powershell\WinLldp\WinLldp.psd1" KeyPath="yes" />
+      </Component>
+      <Component Id="PsModule" Guid="d1b09d7f-6c8e-4fa0-91ec-5d6e7f8091a2" Bitness="always64">
+        <File Id="PsModule" Source="$(var.RepoRoot)\powershell\WinLldp\WinLldp.psm1" KeyPath="yes" />
+      </Component>
+      <Component Id="PsFormat" Guid="e2c1ae80-7d9f-40b1-a2fd-6e7f8091a2b3" Bitness="always64">
+        <File Id="PsFormat" Source="$(var.RepoRoot)\powershell\WinLldp\WinLldp.format.ps1xml" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <ComponentGroup Id="EventSource" Directory="INSTALLFOLDER">
+      <Component Id="EventLogSource" Guid="f3d2bf91-8ea0-41c2-b30e-7f8091a2b3c4" Bitness="always64">
+        <RegistryKey Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\WinLLDP">
+          <RegistryValue Name="EventMessageFile" Type="expandable" Value="%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\EventLogMessages.dll" KeyPath="yes" />
+          <RegistryValue Name="TypesSupported" Type="integer" Value="7" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

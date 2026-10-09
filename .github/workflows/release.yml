@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build and package (${{ matrix.arch }})
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: arm64
+            target: aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99"
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Version from tag
+        id: ver
+        shell: pwsh
+        run: |
+          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF.Substring(11) } else { '0.0.0' }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p winlldp-service -p winlldp-cli
+
+      - name: Test (x64 only; arm64 cannot run on this host)
+        if: matrix.arch == 'x64'
+        run: cargo test --release --locked --workspace
+
+      - name: SBOM
+        run: |
+          cargo install cargo-cyclonedx --locked
+          cargo cyclonedx --format json --override-filename WinLLDP-${{ steps.ver.outputs.version }}-${{ matrix.arch }}.sbom
+
+      - name: Sign executables and PowerShell module (Azure Trusted Signing)
+        if: github.event_name != 'workflow_dispatch' || vars.SIGNING_ENABLED == 'true'
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.TRUSTED_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}
+          files-folder-filter: exe,psm1,psd1,ps1xml
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Install WiX v7
+        run: |
+          dotnet tool install --global wix --version 7.0.0
+          wix eula accept wix7
+          wix extension add -g WixToolset.Util.wixext/7.0.0
+
+      - name: Build MSI
+        run: >
+          dotnet build packaging/wix/WinLLDP.wixproj -c Release
+          -p:Platform=${{ matrix.arch }}
+          -p:BinDir=${{ github.workspace }}\target\${{ matrix.target }}\release
+          -p:ProductVersion=${{ steps.ver.outputs.version }}
+          -p:OutputPath=${{ github.workspace }}\dist\
+
+      - name: Sign MSI
+        if: github.event_name != 'workflow_dispatch' || vars.SIGNING_ENABLED == 'true'
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ vars.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.TRUSTED_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\dist
+          files-folder-filter: msi
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WinLLDP-${{ matrix.arch }}
+          path: |
+            dist/*.msi
+            *.sbom.json
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true

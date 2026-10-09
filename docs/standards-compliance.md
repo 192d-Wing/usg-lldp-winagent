@@ -56,26 +56,43 @@ Clause numbers below reflect 802.1AB-2016 as best known; every row is
 
 | Standard | Clause | Requirement | Implementation | Test Case | Status |
 | --- | --- | --- | --- | --- | --- |
-| IEEE 802.1AB-2016 | 7.4 (Table 7-1) | LLDP destination MAC addresses (nearest bridge 01-80-C2-00-00-0E; nearest non-TPMR 01-80-C2-00-00-03; nearest customer bridge 01-80-C2-00-00-00) | lldp-core | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.2 | LLDPDU format and TLV ordering (Chassis ID, Port ID, TTL first; End of LLDPDU last) | lldp-codec | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.4 | Basic TLV format (7-bit type, 9-bit length) | lldp-codec | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.5.1 | End of LLDPDU TLV | lldp-codec | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.5.2 | Chassis ID TLV and subtypes | lldp-codec | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.5.3 | Port ID TLV and subtypes | lldp-codec | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.5.4 | Time To Live TLV; TTL = min(65535, msgTxInterval x msgTxHold + 1) | lldp-codec / lldp-core | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.5.5 | Port Description TLV | lldp-codec | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.5.6 | System Name TLV | lldp-codec | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.5.7 | System Description TLV | lldp-codec | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.5.8 | System Capabilities TLV (Station Only bit for workstation) | lldp-codec | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.5.9 | Management Address TLV (AFN, interface numbering, OID) | lldp-codec | TBD | Planned |
-| IEEE 802.1AB-2016 | 8.6 | Organizationally Specific TLV format (type 127, OUI, subtype) | lldp-codec | TBD | Planned |
-| IEEE 802.1AB-2016 | 9.2 | Transmit, transmit-timer, and receive state machines | lldp-core | TBD | Planned |
-| IEEE 802.1AB-2016 | 9.2 | Timer parameters: msgTxInterval (default 30), msgTxHold (default 4), msgFastTx (default 1), txFastInit (default 4), txCreditMax (default 5), reinitDelay (default 2) | lldp-core / lldp-config | TBD | Planned |
-| IEEE 802.1AB-2016 | 9.2 | Shutdown LLDPDU (TTL = 0) on admin disable / port down | lldp-core | TBD | Planned |
-| IEEE 802.1AB-2016 | 9.2 | Receive validation and discard rules; too-many-neighbors handling | lldp-codec / lldp-core | TBD | Planned |
-| IEEE 802.1AB-2016 | 10 / 11 | Statistics counters (`lldpStatsRxPortFramesTotal`, `...FramesDiscardedTotal`, `...FramesErrors`, `...TLVsDiscardedTotal`, `...TLVsUnrecognizedTotal`, `...AgeoutsTotal`, `lldpStatsTxPortFramesTotal`, etc.) | lldp-core | TBD | Planned |
+| IEEE 802.1AB-2016 | 7.4 (Table 7-1) | LLDP destination MAC addresses (nearest bridge 01-80-C2-00-00-0E; nearest non-TPMR 01-80-C2-00-00-03; nearest customer bridge 01-80-C2-00-00-00) | lldp-codec `ethernet::LldpDestination` | `lldpdu::ethernet_frame_roundtrip`, `port::own_echo_and_non_lldp_destinations_are_ignored` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.2 | LLDPDU format and TLV ordering (Chassis ID, Port ID, TTL first; End of LLDPDU last) | lldp-codec `Lldpdu::decode/encode` | `lldpdu::wrong_mandatory_order_rejected`, `missing_mandatory_tlvs_rejected`, `duplicate_mandatory_rejected` | Implemented, unit tested, fuzzed |
+| IEEE 802.1AB-2016 | 8.4 | Basic TLV format (7-bit type, 9-bit length) | lldp-codec `tlv` | `lldpdu::bad_tlv_lengths_rejected`, `max_length_tlv_roundtrips`, fuzz `tlv_parse` | Implemented, unit tested, fuzzed |
+| IEEE 802.1AB-2016 | 8.5.1 | End of LLDPDU TLV | lldp-codec | `lldpdu::end_tlv_with_length_is_warning`, `missing_end_tlv_is_warning` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.2 | Chassis ID TLV and subtypes | lldp-codec `types::ChassisId` | `lldpdu::invalid_identifiers_rejected`, `encode_rejects_invalid_values` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.3 | Port ID TLV and subtypes | lldp-codec `types::PortId` | `lldpdu::invalid_identifiers_rejected` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.4 | Time To Live TLV; TTL = min(65535, msgTxInterval x msgTxHold + 1) | lldp-codec / lldp-core `TimerParams::ttl` | `lldpdu::zero_ttl_and_max_ttl_decode`, `port::timer_params_validation_and_ttl` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.5 | Port Description TLV | lldp-codec | `lldpdu::full_roundtrip`, `overlong_string_tlv_discarded` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.6 | System Name TLV | lldp-codec | `lldpdu::full_roundtrip`, `duplicate_optional_keeps_first` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.7 | System Description TLV | lldp-codec | `lldpdu::full_roundtrip` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.8 | System Capabilities TLV (Station Only bit for workstation) | lldp-codec `types::SystemCapabilities` | `lldpdu::capabilities_short_names`, `invalid_capabilities_discarded`, `resolver::defaults_advertise_fqdn_os_and_station_only` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.9 | Management Address TLV (AFN, interface numbering, OID) | lldp-codec `types::ManagementAddress` | `lldpdu::management_address_edge_cases`, `resolver::management_address_rules` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.6 | Organizationally Specific TLV format (type 127, OUI, subtype) | lldp-codec `org` | `lldpdu::org_tlv_too_short_discarded`, `org::*`, fuzz `org_tlv_parse` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 9.2 | Transmit, transmit-timer, and receive state machines | lldp-core `port::Port` | `port::link_up_starts_fast_transmission_then_normal_interval`, `receive_adds_updates_and_expires_neighbors`, `new_neighbor_triggers_fast_start` | Implemented, unit tested; fast-period count marked verify |
+| IEEE 802.1AB-2016 | 9.2 | Timer parameters: msgTxInterval (default 30), msgTxHold (default 4), msgFastTx (default 1), txFastInit (default 4), txCreditMax (default 5), reinitDelay (default 2) | lldp-core `TimerParams`, lldp-config | `port::credit_limits_bursts_of_local_changes`, `config::range_violations_are_collected_with_paths` | Implemented, unit tested; ranges marked verify |
+| IEEE 802.1AB-2016 | 9.2 | Shutdown LLDPDU (TTL = 0) on admin disable / port down | lldp-core `Port::tx_shutdown` | `port::admin_disable_sends_shutdown_and_waits_reinit_delay`, `agent_shutdown_sends_ttl_zero_and_clears`, `runtime::driver_transmits_receives_and_shuts_down` | Implemented, unit tested |
+| IEEE 802.1AB-2016 | 9.2 | Receive validation and discard rules; too-many-neighbors handling | lldp-codec, lldp-core `NeighborTable` | `port::too_many_neighbors_drops_newest`, `malformed_frames_are_counted_not_fatal`, `ttl_zero_removes_immediately` | Implemented, unit tested |
+| IEEE 802.1AB-2016 | 10 / 11 | Statistics counters (`lldpStatsRxPortFramesTotal`, `...FramesDiscardedTotal`, `...FramesErrors`, `...TLVsDiscardedTotal`, `...TLVsUnrecognizedTotal`, `...AgeoutsTotal`, `lldpStatsTxPortFramesTotal`, etc.) | lldp-core `PortStats` | `port::*` assertions on `stats()` | Implemented, unit tested |
 
-## 5. Explicitly out of scope
+## 5. Lab validation (pending)
+
+Not yet executed; requires the Cisco IOS-XE switch and the Windows 11
+workstation. Record results here when done:
+
+| Check | Result |
+| --- | --- |
+| Switch `show lldp neighbors detail` shows the workstation with locally assigned chassis ID, MAC port ID, system name, capabilities S, TTL 121 | pending |
+| Exactly one neighbor per port (MsLldp unbound) | pending |
+| `winlldp neighbors` shows switch name, port, management addresses, PVID, MAC/PHY | pending |
+| Wireshark: TLV order, lengths, values as in docs/troubleshooting.md | pending |
+| Shutdown LLDPDU on service stop clears the switch entry | pending |
+| Dock / undock, cable pull, sleep / resume handled without restart | pending |
+| Config reload without restart | pending |
+| Service token holds only SeChangeNotifyPrivilege; restricted SID | pending |
+| Silent MSI install, upgrade, uninstall with logs | pending |
+
+## 6. Explicitly out of scope
 
 - LLDP MIB / SNMP agent (802.1AB Clause 11 as an SNMP surface).
 - 802.1ABdh multiframe transmit.

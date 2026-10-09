@@ -9,7 +9,10 @@
 | Negative/malformed | `crates/lldp-codec/tests/malformed.rs` | all | every PR |
 | Fuzz | `fuzz/` (cargo-fuzz, libFuzzer) targets: `lldpdu_decode`, `tlv_parse`, `org_tlv_parse`, `config_parse` | Linux CI, 5 min per target per PR; nightly 1 h | every PR (smoke), nightly |
 | State machine | `lldp-core` tests with mock `PacketIo` and `tokio::time::pause` | all | every PR |
-| Windows integration | `lldp-windows` tests: adapter enumeration, pipe ACL, Event Log | Windows CI (no Npcap) + lab | every PR where possible |
+| Windows cross-check | `cargo clippy` for x86_64 and aarch64 Windows targets | Linux CI | every PR |
+| PowerShell | Pester tests and PSScriptAnalyzer for the WinLldp module | Windows CI | every PR |
+| MSI | WiX v7 build and binary smoke test | Windows CI | every PR |
+| Windows integration | adapter enumeration, pipe ACL, Event Log against a live system | lab | pre-release |
 | Service lifecycle | install, start, reload, stop, uninstall on a Windows VM | lab | pre-release |
 | Interoperability | Cisco IOS-XE switch + Windows 11 workstation; Linux lldpd VM | lab | pre-release |
 | Wireshark validation | capture on the workstation and on a SPAN port | lab | pre-release |
