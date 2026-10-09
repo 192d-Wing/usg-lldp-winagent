@@ -1,0 +1,19 @@
+[package]
+name = "lldp-core"
+description = "IEEE 802.1AB LLDP agent engine: state machines, timers, neighbor table, statistics. Platform independent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+lldp-codec.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt", "macros"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["sync", "time", "rt", "macros", "test-util"] }
+
+[lints]
+workspace = true
