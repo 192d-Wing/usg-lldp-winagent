@@ -82,6 +82,8 @@ dependencies = [
  "lldp-codec",
  "lldp-config",
  "lldp-core",
+ "lldp-ipc",
+ "serde_json",
  "tokio",
  "windows",
 ]

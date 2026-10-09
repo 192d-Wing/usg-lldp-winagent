@@ -9,12 +9,16 @@
 #[cfg(windows)]
 pub mod adapters;
 #[cfg(windows)]
+pub mod eventlog;
+#[cfg(windows)]
 pub mod monitor;
 #[cfg(windows)]
 pub mod mslldp;
 #[cfg(windows)]
 pub mod npcap;
 pub mod parse;
+#[cfg(windows)]
+pub mod pipe;
 #[cfg(windows)]
 pub mod policy;
 #[cfg(windows)]
