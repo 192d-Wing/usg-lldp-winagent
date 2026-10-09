@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/lldp-codec", "crates/lldp-core", "crates/lldp-config"]
+members = ["crates/lldp-codec", "crates/lldp-core", "crates/lldp-config", "crates/lldp-windows"]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,7 +11,7 @@ repository = "https://github.com/192d-wing/usg-lldp-winagent"
 authors = ["John Edward Willman V"]
 
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 missing_docs = "warn"
 unused_must_use = "deny"
 
@@ -42,3 +42,5 @@ tokio = { version = "1.47", default-features = false }
 lldp-core = { path = "crates/lldp-core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml_ng = "0.10"
+lldp-config = { path = "crates/lldp-config" }
+windows = "0.62"

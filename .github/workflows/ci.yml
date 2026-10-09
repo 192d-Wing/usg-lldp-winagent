@@ -28,6 +28,12 @@ jobs:
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
       - run: cargo doc --workspace --no-deps
+      - name: Cross-check Windows targets
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          rustup target add x86_64-pc-windows-msvc aarch64-pc-windows-msvc
+          cargo clippy --workspace --all-targets --target x86_64-pc-windows-msvc
+          cargo check --workspace --target aarch64-pc-windows-msvc
 
   deny:
     name: cargo deny

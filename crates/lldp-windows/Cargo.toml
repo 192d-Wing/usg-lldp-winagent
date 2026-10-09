@@ -1,0 +1,31 @@
+[package]
+name = "lldp-windows"
+description = "Windows integration for WinLLDP: adapter discovery, interface change notifications, Npcap packet backend, system information, policy registry, and MsLldp binding control."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+lldp-codec.workspace = true
+lldp-core.workspace = true
+lldp-config.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Security",
+    "Win32_Networking_WinSock",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+
+[lints]
+workspace = true
