@@ -37,15 +37,15 @@ codegen-units = 1
 strip = "symbols"
 
 [workspace.dependencies]
-lldp-codec = { path = "crates/lldp-codec" }
+lldp-codec = { path = "crates/lldp-codec", version = "0.1.0" }
 tokio = { version = "1.47", default-features = false }
-lldp-core = { path = "crates/lldp-core" }
+lldp-core = { path = "crates/lldp-core", version = "0.1.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml_ng = "0.10"
-lldp-config = { path = "crates/lldp-config" }
+lldp-config = { path = "crates/lldp-config", version = "0.1.0" }
 windows = "0.62"
-lldp-ipc = { path = "crates/lldp-ipc" }
+lldp-ipc = { path = "crates/lldp-ipc", version = "0.1.0" }
 serde_json = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 windows-service = "0.8"
-lldp-windows = { path = "crates/lldp-windows" }
+lldp-windows = { path = "crates/lldp-windows", version = "0.1.0" }

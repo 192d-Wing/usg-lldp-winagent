@@ -114,6 +114,7 @@ dependencies = [
 name = "lldp-config"
 version = "0.1.0"
 dependencies = [
+ "lldp-codec",
  "lldp-core",
  "serde",
  "serde_yaml_ng",
