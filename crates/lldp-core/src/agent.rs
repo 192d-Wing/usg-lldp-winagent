@@ -172,7 +172,9 @@ impl Agent {
             }
             InterfaceChange::Removed(info) => {
                 self.known.remove(&info.guid);
-                self.stop_port(&info.guid).await;
+                // The packet channel closes when the adapter goes away;
+                // that is the removal itself, not a failure to report.
+                self.stop_port(&info.guid, false).await;
             }
         }
     }
@@ -193,7 +195,7 @@ impl Agent {
             return false;
         };
         if status == AdminStatus::Disabled {
-            self.stop_port(guid).await;
+            self.stop_port(guid, true).await;
             return true;
         }
         let decision = Decision {
@@ -207,7 +209,7 @@ impl Agent {
     async fn reconcile(&mut self, info: &InterfaceInfo) {
         let decision = self.resolver.decide(info);
         if decision.admin_status == AdminStatus::Disabled {
-            self.stop_port(&info.guid).await;
+            self.stop_port(&info.guid, true).await;
             return;
         }
         self.apply(info, decision).await;
@@ -307,12 +309,14 @@ impl Agent {
         );
     }
 
-    async fn stop_port(&mut self, guid: &str) {
+    async fn stop_port(&mut self, guid: &str, report_failure: bool) {
         let Some(p) = self.ports.remove(guid) else {
             return;
         };
         let _ = p.cmds.send(PortCommand::Shutdown).await;
-        if let Ok(crate::runtime::Exit::ChannelError(error)) = p.task.await {
+        if let Ok(crate::runtime::Exit::ChannelError(error)) = p.task.await
+            && report_failure
+        {
             let _ = self.events.send(AgentEvent::PortFailed {
                 guid: guid.to_owned(),
                 error,
@@ -358,11 +362,21 @@ impl Agent {
         }
     }
 
+    /// Starts a new fast transmission period on one port, or on every port
+    /// when `guid` is `None`, without any change in content.
+    pub async fn readvertise(&self, guid: Option<&str>) {
+        for (g, p) in &self.ports {
+            if guid.is_none_or(|want| want == g) {
+                let _ = p.cmds.send(PortCommand::Readvertise).await;
+            }
+        }
+    }
+
     /// Stops every port, sending shutdown LLDPDUs.
     pub async fn shutdown(&mut self) {
         let guids: Vec<String> = self.ports.keys().cloned().collect();
         for g in guids {
-            self.stop_port(&g).await;
+            self.stop_port(&g, true).await;
         }
     }
 }

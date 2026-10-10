@@ -50,7 +50,7 @@ enum Command {
     Install,
     /// Remove the service registration.
     Uninstall,
-    /// Apply the restricted service SID and minimal privileges.
+    /// Apply the service SID and minimal privileges.
     Harden,
     /// Validate the configuration file and exit.
     Validate,

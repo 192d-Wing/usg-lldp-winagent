@@ -89,8 +89,10 @@ pub fn is_enabled(guid: &str) -> Result<bool, BindingError> {
 fn set(guid: &str, enable: bool) -> Result<(), BindingError> {
     guid_ok(guid)?;
     let verb = if enable { "Enable" } else { "Disable" };
+    // An absent adapter (unplugged dock) must be an error, not a silent
+    // no-op, so `restore` keeps the recorded state for when it returns.
     let s = format!(
-        "Get-NetAdapter -IncludeHidden | Where-Object InterfaceGuid -eq '{guid}' | {verb}-NetAdapterBinding -ComponentID {COMPONENT_ID} -ErrorAction Stop"
+        "$a = Get-NetAdapter -IncludeHidden | Where-Object InterfaceGuid -eq '{guid}'; if (-not $a) {{ [Console]::Error.WriteLine('adapter is not present'); exit 3 }}; $a | {verb}-NetAdapterBinding -ComponentID {COMPONENT_ID} -ErrorAction Stop"
     );
     run(&s).map(|_| ())
 }

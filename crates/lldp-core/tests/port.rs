@@ -77,6 +77,42 @@ fn ttl_of(frame: &[u8]) -> u16 {
 }
 
 #[test]
+fn readvertise_restarts_the_fast_period_with_unchanged_content() {
+    let t0 = Instant::now();
+    let mut p = port(AdminStatus::RxTx, t0);
+    assert!(
+        transmits(&p.readvertise(t0)).is_empty(),
+        "nothing while the link is down"
+    );
+    p.link_up(t0);
+    for s in 1..=3 {
+        p.tick(t0 + Duration::from_secs(s));
+    }
+    // In the normal interval now; an unchanged update sends nothing.
+    let t = t0 + Duration::from_secs(10);
+    assert_eq!(
+        transmits(&p.update_local(system(), local(), t)),
+        Vec::<&Vec<u8>>::new()
+    );
+    let a = p.readvertise(t);
+    assert_eq!(transmits(&a).len(), 1);
+    assert_eq!(ttl_of(transmits(&a)[0]), 121);
+    for s in 1..=3 {
+        assert_eq!(p.next_deadline(), Some(t + Duration::from_secs(s)));
+        assert_eq!(transmits(&p.tick(t + Duration::from_secs(s))).len(), 1);
+    }
+    assert_eq!(p.next_deadline(), Some(t + Duration::from_secs(33)));
+
+    // Right after a scheduled frame, the fast period starts one fast
+    // interval later instead of repeating the frame at once.
+    let t2 = t + Duration::from_secs(33);
+    assert_eq!(transmits(&p.tick(t2)).len(), 1);
+    assert_eq!(transmits(&p.readvertise(t2)), Vec::<&Vec<u8>>::new());
+    assert_eq!(p.next_deadline(), Some(t2 + Duration::from_secs(1)));
+    assert_eq!(transmits(&p.tick(t2 + Duration::from_secs(1))).len(), 1);
+}
+
+#[test]
 fn link_up_starts_fast_transmission_then_normal_interval() {
     let t0 = Instant::now();
     let mut p = port(AdminStatus::RxTx, t0);

@@ -68,6 +68,10 @@ impl PacketIo for UnavailableBackend {
 struct MsLldpHooks {
     enabled: bool,
     sink: mpsc::UnboundedSender<SinkEvent>,
+    /// GUIDs of interfaces whose binding was just disabled. MsLldp sends a
+    /// shutdown LLDPDU with the same chassis and port ID as ours when it is
+    /// unbound, so the port must advertise again afterwards.
+    readvertise: mpsc::UnboundedSender<String>,
     /// Binding changes still running, awaited at shutdown so the restore
     /// is logged before the service reports stopped.
     pending: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
@@ -100,13 +104,17 @@ impl PortHooks for MsLldpHooks {
         let guid = iface.guid.clone();
         let alias = iface.alias.clone();
         let sink = self.sink.clone();
+        let readvertise = self.readvertise.clone();
         self.track(tokio::task::spawn_blocking(move || {
             let _ = sink.send(match lldp_windows::mslldp::disable_and_record(&guid) {
-                Ok(()) => SinkEvent::MsLldp {
-                    alias,
-                    enabled: false,
-                    error: None,
-                },
+                Ok(()) => {
+                    let _ = readvertise.send(guid);
+                    SinkEvent::MsLldp {
+                        alias,
+                        enabled: false,
+                        error: None,
+                    }
+                }
                 Err(e) => SinkEvent::MsLldp {
                     alias,
                     enabled: false,
@@ -325,9 +333,11 @@ async fn run(
             }
         };
 
+    let (readvertise_tx, mut readvertise_rx) = mpsc::unbounded_channel::<String>();
     let hooks = Arc::new(MsLldpHooks {
         enabled: config.windows.manage_mslldp_binding,
         sink: sink_tx.clone(),
+        readvertise: readvertise_tx,
         pending: std::sync::Mutex::new(Vec::new()),
     });
     let agent = Agent::new(
@@ -355,6 +365,20 @@ async fn run(
     tokio::spawn(async move {
         if let Err(e) = lldp_windows::monitor::run(sub, Duration::from_millis(500), if_tx).await {
             let _ = monitor_sink.send(SinkEvent::MonitorError(e.to_string()));
+        }
+    });
+
+    // Suspend detection. Modern Standby (S0 low power idle) sends services
+    // no resume power event, so also treat a wall-clock jump across a
+    // short timer sleep as a resume.
+    let resume_watch = Arc::clone(&resume);
+    tokio::spawn(async move {
+        loop {
+            let before = SystemTime::now();
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            if before.elapsed().is_ok_and(|d| d > Duration::from_secs(20)) {
+                resume_watch.notify_one();
+            }
         }
     });
 
@@ -414,9 +438,13 @@ async fn run(
                 }
             }
             () = resume.notified() => {
-                // Timers must be re-based after sleep: ask every port to
-                // re-advertise; link changes arrive through the monitor.
-                state.agent.lock().await.local_change().await;
+                // The neighbor has aged us out during sleep: start a fast
+                // period on every port; link and address changes arrive
+                // through the monitor.
+                state.agent.lock().await.readvertise(None).await;
+            }
+            Some(guid) = readvertise_rx.recv() => {
+                state.agent.lock().await.readvertise(Some(&guid)).await;
             }
             change = if_rx.recv() => {
                 match change {

@@ -52,7 +52,7 @@
       <ComponentGroupRef Id="EventSource" />
     </Feature>
 
-    <!-- Apply restricted SID and minimal privileges after the service is registered -->
+    <!-- Apply the service SID and minimal privileges after the service is registered -->
     <SetProperty Id="HardenService" Value="&quot;[INSTALLFOLDER]winlldp-service.exe&quot; harden" Before="HardenService" Sequence="execute" />
     <CustomAction Id="HardenService" DllEntry="WixQuietExec64" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" Execute="deferred" Impersonate="no" Return="check" />
     <InstallExecuteSequence>

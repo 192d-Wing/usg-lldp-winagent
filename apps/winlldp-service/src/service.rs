@@ -47,9 +47,23 @@ fn service_main(_args: Vec<OsString>) {
     let reload_for_handler = Arc::clone(&reload);
     let resume_for_handler = Arc::clone(&resume);
 
+    let status_cell = Arc::new(std::sync::OnceLock::new());
+    let status_for_handler = Arc::clone(&status_cell);
+
     let handler = move |control: ServiceControl| -> ServiceControlHandlerResult {
         match control {
             ServiceControl::Stop | ServiceControl::Shutdown | ServiceControl::Preshutdown => {
+                // Shutdown sends TTL 0 frames and restores MsLldp bindings,
+                // which takes seconds; without this the SCM reports the
+                // stop request as failed.
+                if let Some(h) = status_for_handler.get() {
+                    let h: &service_control_handler::ServiceStatusHandle = h;
+                    let _ = h.set_service_status(status(
+                        ServiceState::StopPending,
+                        ServiceControlAccept::empty(),
+                        Duration::from_secs(30),
+                    ));
+                }
                 let _ = shutdown_for_handler.send(true);
                 ServiceControlHandlerResult::NoError
             }
@@ -78,6 +92,7 @@ fn service_main(_args: Vec<OsString>) {
     let Ok(status_handle) = service_control_handler::register(SERVICE_NAME, handler) else {
         return;
     };
+    let _ = status_cell.set(status_handle);
     let accept = ServiceControlAccept::STOP
         | ServiceControlAccept::SHUTDOWN
         | ServiceControlAccept::PRESHUTDOWN
@@ -152,7 +167,7 @@ pub fn install(config_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Applies the restricted service SID, minimal privileges, and failure
+/// Applies the service SID, minimal privileges, and failure
 /// actions. Safe to run repeatedly.
 pub fn harden() -> Result<(), String> {
     let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)
@@ -160,11 +175,15 @@ pub fn harden() -> Result<(), String> {
     let service = manager
         .open_service(
             SERVICE_NAME,
-            ServiceAccess::CHANGE_CONFIG | ServiceAccess::QUERY_CONFIG,
+            // START is required to set a restart failure action.
+            ServiceAccess::CHANGE_CONFIG | ServiceAccess::QUERY_CONFIG | ServiceAccess::START,
         )
         .map_err(|e| format!("open service: {e}"))?;
+    // Unrestricted, not restricted: a write-restricted token is not an
+    // administrator to Npcap's Admin-only mode and cannot create further
+    // instances of its own pipe (lab result, decision I2).
     service
-        .set_config_service_sid_info(ServiceSidType::Restricted)
+        .set_config_service_sid_info(ServiceSidType::Unrestricted)
         .map_err(|e| format!("set SID type: {e}"))?;
     lldp_windows::svcconfig::set_required_privileges(SERVICE_NAME, &["SeChangeNotifyPrivilege"])?;
     let actions = windows_service::service::ServiceFailureActions {
@@ -192,7 +211,7 @@ pub fn harden() -> Result<(), String> {
         .update_failure_actions(actions)
         .map_err(|e| format!("failure actions: {e}"))?;
     println!(
-        "{SERVICE_NAME} hardened: restricted SID, SeChangeNotifyPrivilege only, restart on failure"
+        "{SERVICE_NAME} hardened: service SID, SeChangeNotifyPrivilege only, restart on failure"
     );
     Ok(())
 }
