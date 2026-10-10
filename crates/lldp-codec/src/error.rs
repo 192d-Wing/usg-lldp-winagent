@@ -65,14 +65,21 @@ pub enum DecodeError {
         /// Length found.
         len: usize,
     },
-    /// A Chassis ID or Port ID has a subtype whose value is malformed, for
-    /// example a MAC address subtype with a value that is not 6 octets.
+    /// A Chassis ID or Port ID value is longer than 255 octets (9.2.7.7.1).
     InvalidIdentifier {
         /// TLV type (1 or 2).
         tlv_type: u8,
         /// Subtype found.
         subtype: u8,
         /// Length of the identifier value.
+        len: usize,
+    },
+    /// An optional TLV is shorter than the fields it must contain, which
+    /// invalidates the whole LLDPDU (9.2.7.7.2 b).
+    OptionalTlvTooShort {
+        /// TLV type.
+        tlv_type: u8,
+        /// Length found.
         len: usize,
     },
 }
@@ -118,6 +125,9 @@ impl fmt::Display for DecodeError {
                 f,
                 "TLV type {tlv_type} subtype {subtype} has invalid identifier length {len}"
             ),
+            Self::OptionalTlvTooShort { tlv_type, len } => {
+                write!(f, "TLV type {tlv_type} of {len} octets is too short")
+            }
         }
     }
 }
