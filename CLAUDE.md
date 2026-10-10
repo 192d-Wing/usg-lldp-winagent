@@ -9,7 +9,9 @@ architectural decisions already made (do not reopen them).
   docs/standards-compliance.md section 5 has passed on one Windows 11 x64
   workstation against a Cisco C9200CX. That section also lists the open
   findings. Not covered: the signed release MSI, ARM64, Server, Juniper.
-- The compliance matrix clause numbers are still marked `verify`.
+- Timers and the transmit state machines were checked against 802.1AB-2009/Cor 2-2015
+  (docs/standards-compliance.md section 4.1). Frame and TLV formats and the
+  receive rules are still `verify`; that needs the base standard.
 - The service SID type is unrestricted, not restricted; see the lab result
   under decision I2 in docs/decisions.md before changing it.
 

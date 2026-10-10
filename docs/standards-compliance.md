@@ -52,7 +52,8 @@ LLDP itself is not an IETF protocol. The following RFCs are referenced by
 ## 4. Compliance matrix (skeleton)
 
 Clause numbers below reflect 802.1AB-2016 as best known; every row is
-**verify** until checked against the standard text.
+**verify** until checked against the standard text. Section 4.1 lists what
+has been checked so far, and against which document.
 
 | Standard | Clause | Requirement | Implementation | Test Case | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -69,11 +70,71 @@ Clause numbers below reflect 802.1AB-2016 as best known; every row is
 | IEEE 802.1AB-2016 | 8.5.8 | System Capabilities TLV (Station Only bit for workstation) | lldp-codec `types::SystemCapabilities` | `lldpdu::capabilities_short_names`, `invalid_capabilities_discarded`, `resolver::defaults_advertise_fqdn_os_and_station_only` | Implemented, unit tested; lab pending |
 | IEEE 802.1AB-2016 | 8.5.9 | Management Address TLV (AFN, interface numbering, OID) | lldp-codec `types::ManagementAddress` | `lldpdu::management_address_edge_cases`, `resolver::management_address_rules` | Implemented, unit tested; lab pending |
 | IEEE 802.1AB-2016 | 8.6 | Organizationally Specific TLV format (type 127, OUI, subtype) | lldp-codec `org` | `lldpdu::org_tlv_too_short_discarded`, `org::*`, fuzz `org_tlv_parse` | Implemented, unit tested; lab pending |
-| IEEE 802.1AB-2016 | 9.2 | Transmit, transmit-timer, and receive state machines | lldp-core `port::Port` | `port::link_up_starts_fast_transmission_then_normal_interval`, `receive_adds_updates_and_expires_neighbors`, `new_neighbor_triggers_fast_start` | Implemented, unit tested; fast-period count marked verify |
-| IEEE 802.1AB-2016 | 9.2 | Timer parameters: msgTxInterval (default 30), msgTxHold (default 4), msgFastTx (default 1), txFastInit (default 4), txCreditMax (default 5), reinitDelay (default 2) | lldp-core `TimerParams`, lldp-config | `port::credit_limits_bursts_of_local_changes`, `config::range_violations_are_collected_with_paths` | Implemented, unit tested; ranges marked verify |
+| IEEE 802.1AB-2016 | 9.2 | Transmit, transmit-timer, and receive state machines | lldp-core `port::Port` | `port::link_up_starts_fast_transmission_then_normal_interval`, `receive_adds_updates_and_expires_neighbors`, `new_neighbor_triggers_fast_start` | Transmit and transmit timer machines checked against 802.1AB-2009/Cor 2-2015 Figures 9-1 and 9-3 (section 4.1); receive machine still verify |
+| IEEE 802.1AB-2016 | 9.2 | Timer parameters: msgTxInterval (default 30), msgTxHold (default 4), msgFastTx (default 1), txFastInit (default 4), txCreditMax (default 5), reinitDelay (default 2) | lldp-core `TimerParams`, lldp-config | `port::credit_limits_bursts_of_local_changes`, `config::range_violations_are_collected_with_paths` | Defaults and ranges checked against the LLDP-V2-MIB in 802.1AB-2009/Cor 2-2015 (section 4.1); two ranges corrected |
 | IEEE 802.1AB-2016 | 9.2 | Shutdown LLDPDU (TTL = 0) on admin disable / port down | lldp-core `Port::tx_shutdown` | `port::admin_disable_sends_shutdown_and_waits_reinit_delay`, `agent_shutdown_sends_ttl_zero_and_clears`, `runtime::driver_transmits_receives_and_shuts_down` | Implemented, unit tested |
 | IEEE 802.1AB-2016 | 9.2 | Receive validation and discard rules; too-many-neighbors handling | lldp-codec, lldp-core `NeighborTable` | `port::too_many_neighbors_drops_newest`, `malformed_frames_are_counted_not_fatal`, `ttl_zero_removes_immediately` | Implemented, unit tested |
 | IEEE 802.1AB-2016 | 10 / 11 | Statistics counters (`lldpStatsRxPortFramesTotal`, `...FramesDiscardedTotal`, `...FramesErrors`, `...TLVsDiscardedTotal`, `...TLVsUnrecognizedTotal`, `...AgeoutsTotal`, `lldpStatsTxPortFramesTotal`, etc.) | lldp-core `PortStats` | `port::*` assertions on `stats()` | Implemented, unit tested |
+
+### 4.1 Checked against IEEE Std 802.1AB-2009/Cor 2-2015
+
+Checked 2026-10-10. This corrigendum is not the 2016 base standard. It
+contains the corrected transmit figures (9-1, 9-3), the MIB cross-reference
+(Table 11-2), and the LLDP-V2-MIB (11.5.2). The 2016 revision could not be
+compared, so clause numbers here are those of 2009 as corrected.
+
+Confirmed:
+
+- TTL = min(65535, msgTxInterval x msgTxHold + 1) (Figure 9-1, `TX_IDLE`;
+  MIB example 30 x 4 gives 121).
+- Defaults: msgTxInterval 30, msgTxHold 4, reinitDelay 2, txCreditMax 5,
+  msgFastTx 1, txFastInit 4.
+- Ranges: reinitDelay 1 to 10, txCreditMax 1 to 100, msgFastTx 1 to 3600,
+  txFastInit 1 to 8.
+- A fast period is txFastInit LLDPDUs one msgFastTx apart: the first at
+  once, then the normal interval after the last (Figure 9-3).
+- txCredit starts at txCreditMax, gains one per second, and one is spent
+  per LLDPDU; no LLDPDU is sent at zero credit.
+- A shutdown LLDPDU is sent when adminStatus leaves a transmitting state,
+  then reinitDelay passes before transmission restarts; none is sent when
+  the port goes down.
+- Unrecognized TLV types are 9 to 126, and their value is kept.
+- Clause numbers (Table 11-2): adminStatus 9.2.5.1, msgFastTx 9.2.5.5,
+  msgTxHold 9.2.5.6, msgTxInterval 9.2.5.7, reinitDelay 9.2.5.10,
+  tooManyNeighbors 9.2.5.15, txCreditMax 9.2.5.17, txFastInit 9.2.5.19;
+  statistics 9.2.6.1 to 9.2.6.8; LLDPDU validation 9.2.7.7.1; transmit
+  state machine 9.2.8; transmit timer state machine 9.2.10; Chassis ID
+  8.5.2.2 and 8.5.2.3, Port ID 8.5.3.2 and 8.5.3.3, Port Description
+  8.5.5.2, System Name 8.5.6.2, System Description 8.5.7.2, System
+  Capabilities 8.5.8.1 and 8.5.8.2, Management Address 8.5.9.2 to 8.5.9.8,
+  organizationally specific TLV 8.6.1.3 to 8.6.1.5.
+
+Corrected as a result:
+
+- msgTxInterval range was 1 to 3600; it is 5 to 32768.
+- msgTxHold range was 1 to 100; it is 2 to 10.
+- A new neighbor arriving during a fast period restarted the period; the
+  figure starts one only when txFast is zero.
+- An LLDPDU sent for a local change used up one of the fast period's
+  LLDPDUs; in the figure only a timer expiry or a new neighbor does.
+
+Deliberate differences from the figures:
+
+- A fast period also starts when a port starts transmitting (link up,
+  admin enable). In Figure 9-3 initialization sets txFast to zero, so the
+  standard sends one LLDPDU and then waits msgTxInterval. Decision I4
+  called this standard behaviour; it is an addition.
+- The re-advertise after the `ms_lldp` unbind and after resume from sleep
+  has no counterpart in the standard.
+- txTTR is restarted when the LLDPDU is sent, not when it is signalled, so
+  an LLDPDU delayed by zero credit pushes the next one back.
+
+Not implemented: the `lldpduLengthErrors` counter (9.2.6.8).
+
+Still unverified because this document does not contain them: destination
+addresses (7.4), LLDPDU and TLV formats (8.2 to 8.6), the receive state
+machine and validation rules (9.2.7, 9.2.9), and the 802.1Q, 802.3, and
+TIA-1057 TLVs.
 
 ## 5. Lab validation
 
