@@ -113,6 +113,55 @@ fn readvertise_restarts_the_fast_period_with_unchanged_content() {
 }
 
 #[test]
+fn local_change_does_not_use_up_the_fast_period() {
+    // Figure 9-3: localChange goes straight to SIGNAL_TX; only a timer
+    // expiry or a new neighbor passes TX_TIMER_EXPIRES and decrements txFast.
+    let t0 = Instant::now();
+    let ms = Duration::from_millis;
+    let mut p = port(AdminStatus::RxTx, t0);
+    assert_eq!(transmits(&p.link_up(t0)).len(), 1);
+    let mut changed = local();
+    changed.port_description = Some(b"Renamed".to_vec());
+    assert_eq!(
+        transmits(&p.update_local(system(), changed, t0 + ms(500))).len(),
+        1
+    );
+    // Three fast frames still follow, one msgFastTx apart, then the normal interval.
+    for at in [1500, 2500, 3500] {
+        assert_eq!(p.next_deadline(), Some(t0 + ms(at)));
+        assert_eq!(transmits(&p.tick(t0 + ms(at))).len(), 1);
+    }
+    assert_eq!(p.next_deadline(), Some(t0 + ms(33_500)));
+}
+
+#[test]
+fn second_new_neighbor_does_not_extend_a_fast_period() {
+    // TX_FAST_START: txFast is set to txFastInit only when it is zero.
+    let t0 = Instant::now();
+    let s = Duration::from_secs;
+    let mut p = port(AdminStatus::RxTx, t0);
+    p.link_up(t0);
+    for i in 1..=3 {
+        p.tick(t0 + s(i));
+    }
+    let t = t0 + s(10);
+    assert_eq!(
+        transmits(&p.handle_frame(&switch_frame("Gi1/0/1", 120, SW_MAC), t)).len(),
+        1
+    );
+    assert_eq!(transmits(&p.tick(t + s(1))).len(), 1);
+    // A second neighbor two frames into the period: one immediate frame,
+    // and the period still ends after four timer-driven frames in total.
+    let other = MacAddr([0xaa, 0xbb, 0xcc, 0x00, 0x00, 0x02]);
+    assert_eq!(
+        transmits(&p.handle_frame(&switch_frame("Gi1/0/2", 120, other), t + s(1))).len(),
+        1
+    );
+    assert_eq!(transmits(&p.tick(t + s(2))).len(), 1);
+    assert_eq!(p.next_deadline().map(|d| d.min(t + s(40))), Some(t + s(32)));
+}
+
+#[test]
 fn link_up_starts_fast_transmission_then_normal_interval() {
     let t0 = Instant::now();
     let mut p = port(AdminStatus::RxTx, t0);
@@ -451,11 +500,20 @@ fn timer_params_validation_and_ttl() {
     assert!(TimerParams::DEFAULT.validate().is_ok());
     assert_eq!(TimerParams::DEFAULT.ttl(), 121);
     let big = TimerParams {
-        msg_tx_interval: 3600,
-        msg_tx_hold: 100,
+        msg_tx_interval: 32768,
+        msg_tx_hold: 10,
         ..TimerParams::DEFAULT
     };
+    assert!(big.validate().is_ok());
     assert_eq!(big.ttl(), 65535);
+    for (interval, hold) in [(4, 4), (32769, 4), (30, 1), (30, 11)] {
+        let p = TimerParams {
+            msg_tx_interval: interval,
+            msg_tx_hold: hold,
+            ..TimerParams::DEFAULT
+        };
+        assert!(p.validate().is_err(), "{interval} x {hold}");
+    }
     let bad = TimerParams {
         msg_tx_interval: 0,
         ..TimerParams::DEFAULT

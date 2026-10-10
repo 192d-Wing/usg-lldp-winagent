@@ -1,6 +1,12 @@
 //! The per-port LLDP agent: transmit state machine, transmit timer and
-//! credit machine, and receive state machine (IEEE 802.1AB-2016 clause
-//! 9.2.7 through 9.2.10, `verify`).
+//! credit machine, and receive state machine.
+//!
+//! The transmit side was checked against Figures 9-1 and 9-3 of IEEE Std
+//! 802.1AB-2009/Cor 2-2015 (9.2.8, 9.2.10). Two things here go beyond those
+//! figures on purpose: a fast transmission period also starts when the
+//! port starts transmitting (decision I4; the figures start one only for a
+//! new neighbor), and [`Port::readvertise`]. The receive side (9.2.7) is
+//! still `verify`.
 //!
 //! `Port` performs no I/O and reads no clock. Every entry point takes
 //! `now` and returns the [`Action`]s the caller must carry out, so the
@@ -146,6 +152,10 @@ pub struct Port {
     credit_tick: Instant,
     /// `txNow`: a transmission is requested.
     tx_now: bool,
+    /// The requested transmission passes through `TX_TIMER_EXPIRES` and so
+    /// decrements `txFast`. A `localChange` goes straight to `SIGNAL_TX`
+    /// and does not.
+    tx_dec_fast: bool,
     /// When the last LLDPDU (other than a shutdown) was sent.
     last_tx: Option<Instant>,
     neighbors: NeighborTable,
@@ -176,6 +186,7 @@ impl Port {
             tx_credit: timers.tx_credit_max,
             credit_tick: now,
             tx_now: false,
+            tx_dec_fast: false,
             last_tx: None,
             neighbors,
             stats: PortStats::default(),
@@ -233,6 +244,7 @@ impl Port {
         self.credit_tick = now.checked_add(Duration::from_secs(1)).unwrap_or(now);
         self.tx_ttr = None;
         self.tx_now = true;
+        self.tx_dec_fast = true;
     }
 
     /// The link came up.
@@ -325,9 +337,11 @@ impl Port {
                 .last_tx
                 .and_then(|t| t.checked_add(self.timers.fast_tx_interval()))
                 .filter(|next| *next > now);
-            match spaced {
-                Some(next) => self.tx_ttr = Some(next),
-                None => self.tx_now = true,
+            if let Some(next) = spaced {
+                self.tx_ttr = Some(next);
+            } else {
+                self.tx_now = true;
+                self.tx_dec_fast = true;
             }
         }
         self.tick(now)
@@ -453,11 +467,15 @@ impl Port {
                 if let Some(n) = self.neighbors.get(&msap) {
                     actions.push(Action::Event(PortEvent::NeighborAdded(n.clone())));
                 }
-                // A new neighbor starts a fast transmission period so it
-                // learns about us promptly.
+                // TX_FAST_START: a new neighbor starts a fast transmission
+                // period so it learns about us promptly; one already under
+                // way is not extended.
                 if self.tx_state == TxState::Running {
-                    self.tx_fast = self.timers.tx_fast_init;
+                    if self.tx_fast == 0 {
+                        self.tx_fast = self.timers.tx_fast_init;
+                    }
                     self.tx_now = true;
+                    self.tx_dec_fast = true;
                 }
             }
             Insert::Updated => {
@@ -526,6 +544,7 @@ impl Port {
 
         if self.tx_ttr.is_some_and(|t| t <= now) {
             self.tx_now = true;
+            self.tx_dec_fast = true;
         }
 
         if self.tx_now && self.tx_credit > 0 {
@@ -540,10 +559,13 @@ impl Port {
             self.tx_credit = self.tx_credit.saturating_sub(1);
             self.tx_now = false;
             self.last_tx = Some(now);
-            // txFast counts LLDPDUs sent in the fast period: this frame
-            // consumed one, and the interval to the next frame is fast only
-            // while more remain (`verify` against 9.2.5 / 9.2.10).
-            self.tx_fast = self.tx_fast.saturating_sub(1);
+            // TX_TIMER_EXPIRES then SIGNAL_TX: txFast counts the LLDPDUs
+            // left in the fast period, and the interval to the next one is
+            // fast only while some remain. With txFastInit = 4 that is four
+            // frames one msgFastTx apart.
+            if std::mem::take(&mut self.tx_dec_fast) {
+                self.tx_fast = self.tx_fast.saturating_sub(1);
+            }
             let interval = if self.tx_fast > 0 {
                 self.timers.fast_tx_interval()
             } else {
