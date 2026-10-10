@@ -306,12 +306,15 @@ async fn run(cli: Cli) -> Result<(), String> {
         Command::Diagnostics { out } => {
             let report = diagnostics(&pipe).await;
             if out.json {
-                print_json(&report)
+                print_json(&report)?;
             } else {
-                {
-                    render::diagnostics(&report);
-                    Ok(())
-                }
+                render::diagnostics(&report);
+            }
+            // A failed check is a failed run, so scripts can test the exit code.
+            if report.checks.iter().any(|c| c.result == "fail") {
+                Err("one or more checks failed".into())
+            } else {
+                Ok(())
             }
         }
         Command::Debug { filter, interval } => {
