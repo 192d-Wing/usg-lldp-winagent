@@ -111,7 +111,11 @@ fn lldpdu_summary(l: &LldpduView) {
 }
 
 fn lldpdu_detail(l: &LldpduView) {
-    kv("System Descr", opt(l.system_description.as_deref()));
+    // Continuation lines of a multi-line description align under the value.
+    kv(
+        "System Descr",
+        opt(l.system_description.as_deref()).replace('\n', &format!("\n{:19}", "")),
+    );
     kv("TTL", format!("{} seconds", l.ttl));
     for m in &l.management_addresses {
         kv(
