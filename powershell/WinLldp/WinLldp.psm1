@@ -300,6 +300,7 @@ function Get-WinLldpStatistic {
                 RxTlvsUnrecognized    = [uint64]$s.rx_tlvs_unrecognized_total
                 RxAgeouts             = [uint64]$s.rx_ageouts_total
                 TxFramesTotal         = [uint64]$s.tx_frames_total
+                TxLengthErrors        = [uint64]$s.tx_lldpdu_length_errors
                 NeighborInserts       = [uint64]$s.rem_inserts
                 NeighborDeletes       = [uint64]$s.rem_deletes
                 NeighborDrops         = [uint64]$s.rem_drops

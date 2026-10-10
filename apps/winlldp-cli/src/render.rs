@@ -242,6 +242,7 @@ pub fn statistics(v: &[StatisticsView]) {
         kv("Interface", &s.interface_alias);
         kv("Frames In", s.rx_frames_total);
         kv("Frames Out", s.tx_frames_total);
+        kv("Length Errors Out", s.tx_lldpdu_length_errors);
         kv("Frames Discarded", s.rx_frames_discarded_total);
         kv("Frame Errors", s.rx_frames_errors);
         kv("TLVs Discarded", s.rx_tlvs_discarded_total);

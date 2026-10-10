@@ -72,7 +72,7 @@ pub struct Lldp {
     pub fast_tx_interval: u16,
     /// `txFastInit`. 1 to 8.
     pub fast_tx_count: u8,
-    /// `txCreditMax`. 1 to 100.
+    /// `txCreditMax`. 1 to 10.
     pub tx_credit_max: u8,
     /// `reinitDelay`, seconds. 1 to 10.
     pub reinit_delay: u8,

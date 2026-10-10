@@ -1,14 +1,16 @@
-//! Statistics counters mirroring the 802.1AB statistics group
-//! (clause 10.5 / 11.5, `verify`).
+//! Statistics counters mirroring the 802.1AB-2016 statistics variables
+//! (9.2.6.1 to 9.2.6.8) and the LLDP-V2-MIB statistics group (11.5.2).
 
 /// Per-port counters. Names follow the LLDP MIB objects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PortStats {
-    /// `lldpStatsRxPortFramesTotal`: valid LLDP frames received.
+    /// `statsFramesInTotal`: all LLDP frames received, including those then
+    /// discarded (9.2.6.4).
     pub rx_frames_total: u64,
-    /// `lldpStatsRxPortFramesDiscardedTotal`: frames discarded for any reason.
+    /// `statsFramesDiscardedTotal`: frames discarded for any reason.
     pub rx_frames_discarded_total: u64,
-    /// `lldpStatsRxPortFramesErrors`: frames with a detectable error.
+    /// `statsFramesInErrorsTotal`: frames with one or more detectable
+    /// errors, whether the frame or only a TLV was discarded.
     pub rx_frames_errors: u64,
     /// `lldpStatsRxPortTLVsDiscardedTotal`: TLVs discarded for any reason.
     pub rx_tlvs_discarded_total: u64,
@@ -18,6 +20,9 @@ pub struct PortStats {
     pub rx_ageouts_total: u64,
     /// `lldpStatsTxPortFramesTotal`: LLDP frames transmitted.
     pub tx_frames_total: u64,
+    /// `lldpduLengthErrors`: LLDPDUs sent without some of the selected
+    /// TLVs because they did not fit (9.2.6.8).
+    pub tx_lldpdu_length_errors: u64,
     /// `lldpStatsRemTablesInserts` contribution: neighbors added.
     pub rem_inserts: u64,
     /// `lldpStatsRemTablesDeletes` contribution: neighbors removed for any

@@ -115,27 +115,16 @@ impl PortIdSubtype {
     }
 }
 
-/// Checks the identifier value against the constraints of its subtype.
-fn validate_identifier(
-    tlv: u8,
-    subtype: u8,
-    is_mac: bool,
-    is_net: bool,
-    value: &[u8],
-) -> Result<(), DecodeError> {
-    let bad = || DecodeError::InvalidIdentifier {
-        tlv_type: tlv,
-        subtype,
-        len: value.len(),
-    };
+/// Checks the identifier length. Receive validation (9.2.7.7.1) tests only
+/// the length, so a value that does not fit its subtype (a MAC address
+/// subtype that is not 6 octets, say) is accepted and shown as hex.
+fn validate_identifier(tlv: u8, subtype: u8, value: &[u8]) -> Result<(), DecodeError> {
     if value.is_empty() || value.len() > MAX_ID_LEN {
-        return Err(bad());
-    }
-    if is_mac && value.len() != 6 {
-        return Err(bad());
-    }
-    if is_net && NetworkAddress::from_bytes(value).is_none() {
-        return Err(bad());
+        return Err(DecodeError::InvalidIdentifier {
+            tlv_type: tlv,
+            subtype,
+            len: value.len(),
+        });
     }
     Ok(())
 }
@@ -184,13 +173,7 @@ impl ChassisId {
             },
         )?;
         let subtype = ChassisIdSubtype::from_u8(st);
-        validate_identifier(
-            tlv_type::CHASSIS_ID,
-            st,
-            subtype == ChassisIdSubtype::MacAddress,
-            subtype == ChassisIdSubtype::NetworkAddress,
-            id,
-        )?;
+        validate_identifier(tlv_type::CHASSIS_ID, st, id)?;
         Ok(Self {
             subtype,
             value: id.to_vec(),
@@ -272,13 +255,7 @@ impl PortId {
             },
         )?;
         let subtype = PortIdSubtype::from_u8(st);
-        validate_identifier(
-            tlv_type::PORT_ID,
-            st,
-            subtype == PortIdSubtype::MacAddress,
-            subtype == PortIdSubtype::NetworkAddress,
-            id,
-        )?;
+        validate_identifier(tlv_type::PORT_ID, st, id)?;
         Ok(Self {
             subtype,
             value: id.to_vec(),
@@ -319,7 +296,10 @@ fn display_identifier(
     is_net: bool,
     value: &[u8],
 ) -> fmt::Result {
-    if is_mac && let Some(mac) = MacAddr::from_slice(value) {
+    if is_mac
+        && value.len() == 6
+        && let Some(mac) = MacAddr::from_slice(value)
+    {
         return write!(f, "{mac}");
     }
     if is_net && let Some(addr) = NetworkAddress::from_bytes(value) {
@@ -413,7 +393,7 @@ impl Capability {
 pub struct SystemCapabilities {
     /// Capabilities the system supports.
     pub supported: u16,
-    /// Capabilities currently enabled. Should be a subset of `supported`.
+    /// Capabilities currently enabled. A subset of `supported` (8.5.8.3).
     pub enabled: u16,
 }
 
@@ -441,11 +421,19 @@ impl SystemCapabilities {
             .filter(move |c| self.is_enabled(*c))
     }
 
-    /// Parses the 4-octet TLV value. Returns `None` on wrong length.
+    /// Parses the TLV value. Returns `None` if it is shorter than the two
+    /// 2-octet fields; octets after them are ignored, as a later version of
+    /// the TLV may add fields (6.6.1).
     pub fn parse(value: &[u8]) -> Option<Self> {
         let supported = crate::ethernet::read_u16(value, 0)?;
         let enabled = crate::ethernet::read_u16(value, 2)?;
-        (value.len() == 4).then_some(Self { supported, enabled })
+        Some(Self { supported, enabled })
+    }
+
+    /// Whether every enabled capability is also a supported one. A TLV
+    /// for which this is false is in error and discarded (8.5.8.3).
+    pub const fn is_consistent(self) -> bool {
+        self.enabled & !self.supported == 0
     }
 
     /// Serializes the TLV value.
@@ -498,8 +486,7 @@ pub enum NetworkAddress {
     Ipv4(Ipv4Addr),
     /// IPv6 address.
     Ipv6(Ipv6Addr),
-    /// Any other family. Octets are 1 to 30 bytes (bounded by the 5-bit
-    /// length of the Management Address TLV field minus the family octet).
+    /// Any other family, 1 to 31 address octets (8.5.9.4).
     Other {
         /// IANA address family number.
         family: u8,
@@ -509,9 +496,9 @@ pub enum NetworkAddress {
 }
 
 impl NetworkAddress {
-    /// Maximum octets in family + address, from the Management Address
-    /// TLV "address string length" field (1 to 31).
-    pub const MAX_LEN: usize = 31;
+    /// Maximum octets in family + address: the management address subtype
+    /// octet and an address of 1 to 31 octets (8.5.9.2, Figure 8-11).
+    pub const MAX_LEN: usize = 32;
 
     /// Address family.
     pub fn family(&self) -> AddressFamily {
@@ -629,6 +616,16 @@ impl InterfaceNumbering {
     }
 }
 
+/// Why a Management Address TLV value was not accepted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ManagementAddressError {
+    /// The TLV length does not match its two string length fields. The TLV
+    /// is ignored and processing of the LLDPDU ends (8.5.9.9 f).
+    LengthMismatch,
+    /// A field is out of range. Only the TLV is discarded (9.2.7.7.2 d).
+    Invalid,
+}
+
 /// Management Address TLV value (8.5.9).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ManagementAddress {
@@ -658,28 +655,38 @@ impl ManagementAddress {
 
     /// Parses the TLV value. Returns `None` on any structural error.
     pub fn parse(value: &[u8]) -> Option<Self> {
-        let (&addr_len, rest) = value.split_first()?;
+        Self::parse_checked(value).ok()
+    }
+
+    /// Parses the TLV value, telling apart the two kinds of error that
+    /// receive validation treats differently.
+    pub(crate) fn parse_checked(value: &[u8]) -> Result<Self, ManagementAddressError> {
+        use ManagementAddressError::{Invalid, LengthMismatch};
+        let (&addr_len, rest) = value.split_first().ok_or(LengthMismatch)?;
         let addr_len = usize::from(addr_len);
-        if !(1..=NetworkAddress::MAX_LEN).contains(&addr_len) {
-            return None;
-        }
-        let addr_bytes = rest.get(..addr_len)?;
-        let address = NetworkAddress::from_bytes(addr_bytes)?;
-        let rest = rest.get(addr_len..)?;
-        let (&numbering, rest) = rest.split_first()?;
-        let number_bytes: [u8; 4] = rest.get(..4)?.try_into().ok()?;
-        let interface_number = u32::from_be_bytes(number_bytes);
-        let rest = rest.get(4..)?;
-        let (&oid_len, rest) = rest.split_first()?;
+        let addr_bytes = rest.get(..addr_len).ok_or(LengthMismatch)?;
+        let rest = rest.get(addr_len..).ok_or(LengthMismatch)?;
+        let (&numbering, rest) = rest.split_first().ok_or(LengthMismatch)?;
+        let number_bytes: [u8; 4] = rest
+            .get(..4)
+            .and_then(|b| b.try_into().ok())
+            .ok_or(LengthMismatch)?;
+        let rest = rest.get(4..).ok_or(LengthMismatch)?;
+        let (&oid_len, oid) = rest.split_first().ok_or(LengthMismatch)?;
         let oid_len = usize::from(oid_len);
-        if oid_len > Self::MAX_OID_LEN || rest.len() != oid_len {
-            return None;
+        // 8.5.9.9 f): the TLV length is the two string lengths plus 7.
+        if oid.len() != oid_len {
+            return Err(LengthMismatch);
         }
-        Some(Self {
+        if oid_len > Self::MAX_OID_LEN {
+            return Err(Invalid);
+        }
+        let address = NetworkAddress::from_bytes(addr_bytes).ok_or(Invalid)?;
+        Ok(Self {
             address,
             numbering: InterfaceNumbering::from_u8(numbering),
-            interface_number,
-            oid: rest.to_vec(),
+            interface_number: u32::from_be_bytes(number_bytes),
+            oid: oid.to_vec(),
         })
     }
 
@@ -688,7 +695,7 @@ impl ManagementAddress {
         let addr = self.address.to_bytes();
         if addr.len() > NetworkAddress::MAX_LEN {
             return Err(EncodeError::InvalidValue(
-                "management address longer than 31 octets",
+                "management address longer than 31 octets plus subtype",
             ));
         }
         if self.oid.len() > Self::MAX_OID_LEN {

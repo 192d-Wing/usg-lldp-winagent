@@ -1,11 +1,14 @@
 //! Whole-LLDPDU decoding and encoding with the receive validation rules of
-//! IEEE 802.1AB-2016 clause 9.2.7 (rxProcessFrame) as understood from the
-//! standard. Rules marked `verify` must be checked against the text.
+//! IEEE Std 802.1AB-2016 (9.2.7.7.1 to 9.2.7.7.3, and the usage rules of
+//! each TLV in 8.5), checked against the text.
 
 use crate::error::{DecodeError, EncodeError};
-use crate::org::OrgTlv;
+use crate::org::{DecodedOrgTlv, OrgTlv};
 use crate::tlv::{RawTlv, TlvIter, tlv_type, write_tlv};
-use crate::types::{ChassisId, MAX_STRING_LEN, ManagementAddress, PortId, SystemCapabilities};
+use crate::types::{
+    ChassisId, MAX_STRING_LEN, ManagementAddress, ManagementAddressError, PortId,
+    SystemCapabilities,
+};
 
 /// A decoded TLV.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,8 +69,14 @@ pub struct Lldpdu {
 #[non_exhaustive]
 pub enum DecodeWarning {
     /// No End of LLDPDU TLV was found before the data ran out. The LLDPDU
-    /// was accepted (`verify`: 802.1AB-2016 receive rules).
+    /// was accepted: the End TLV is optional (8.2).
     MissingEndTlv,
+    /// A TLV ran past the end of the frame and was discarded; the TLVs
+    /// before it stand (9.2.7.7.2 e).
+    TruncatedTlv {
+        /// Offset of the discarded TLV.
+        offset: usize,
+    },
     /// The End TLV had a nonzero length. Processing stopped there.
     EndTlvNonZeroLength {
         /// Length found.
@@ -110,7 +119,9 @@ pub enum DecodeWarning {
 pub struct DecodeReport {
     /// Non-fatal observations.
     pub warnings: Vec<DecodeWarning>,
-    /// TLVs of unrecognized type (feeds `lldpStatsRxPortTLVsUnrecognizedTotal`).
+    /// TLVs of a reserved type, or organizationally specific with an OUI
+    /// or subtype this crate has no decoder for (feeds
+    /// `lldpStatsRxPortTLVsUnrecognizedTotal`).
     pub tlvs_unrecognized: u32,
     /// TLVs discarded for invalid content (feeds `lldpStatsRxPortTLVsDiscardedTotal`).
     pub tlvs_discarded: u32,
@@ -140,7 +151,8 @@ impl Lldpdu {
     ///
     /// Errors indicate the frame must be discarded and counted as a frame
     /// error. Warnings in the report indicate TLV-level issues that did not
-    /// invalidate the LLDPDU.
+    /// invalidate the LLDPDU. For a shutdown LLDPDU (TTL 0) validation
+    /// stops after the three mandatory TLVs.
     pub fn decode(data: &[u8]) -> Result<Decoded, DecodeError> {
         if data.is_empty() {
             return Err(DecodeError::Empty);
@@ -159,84 +171,20 @@ impl Lldpdu {
 
         let mut lldpdu = Self::new(chassis_id, port_id, ttl);
         let mut report = DecodeReport::default();
-        let mut seen_end = false;
-        let mut seen_once = [false; 4]; // types 4, 5, 6, 7
-
-        for item in iter.by_ref() {
-            let tlv = item?;
-            match tlv.tlv_type {
-                tlv_type::END => {
-                    if !tlv.value.is_empty() {
-                        report.warnings.push(DecodeWarning::EndTlvNonZeroLength {
-                            len: tlv.value.len(),
-                        });
-                    }
-                    seen_end = true;
-                    break;
-                }
-                tlv_type::CHASSIS_ID | tlv_type::PORT_ID | tlv_type::TTL => {
-                    return Err(DecodeError::DuplicateMandatoryTlv {
-                        tlv_type: tlv.tlv_type,
-                    });
-                }
-                tlv_type::PORT_DESCRIPTION
-                | tlv_type::SYSTEM_NAME
-                | tlv_type::SYSTEM_DESCRIPTION => {
-                    let slot = usize::from(tlv.tlv_type.saturating_sub(tlv_type::PORT_DESCRIPTION));
-                    if tlv.value.len() > MAX_STRING_LEN {
-                        discard_invalid(&mut report, &tlv);
-                    } else if seen_once.get(slot).copied().unwrap_or(false) {
-                        discard_duplicate(&mut report, &tlv);
-                    } else {
-                        if let Some(s) = seen_once.get_mut(slot) {
-                            *s = true;
-                        }
-                        lldpdu.optional.push(match tlv.tlv_type {
-                            tlv_type::PORT_DESCRIPTION => Tlv::PortDescription(tlv.value.to_vec()),
-                            tlv_type::SYSTEM_NAME => Tlv::SystemName(tlv.value.to_vec()),
-                            _ => Tlv::SystemDescription(tlv.value.to_vec()),
-                        });
-                    }
-                }
-                tlv_type::SYSTEM_CAPABILITIES => match SystemCapabilities::parse(tlv.value) {
-                    Some(caps) if !seen_once[3] => {
-                        seen_once[3] = true;
-                        lldpdu.optional.push(Tlv::SystemCapabilities(caps));
-                    }
-                    Some(_) => discard_duplicate(&mut report, &tlv),
-                    None => discard_invalid(&mut report, &tlv),
-                },
-                tlv_type::MANAGEMENT_ADDRESS => match ManagementAddress::parse(tlv.value) {
-                    Some(addr) => lldpdu.optional.push(Tlv::ManagementAddress(addr)),
-                    None => discard_invalid(&mut report, &tlv),
-                },
-                tlv_type::ORGANIZATIONAL => match OrgTlv::parse(tlv.value) {
-                    Some(org) => lldpdu.optional.push(Tlv::Organizational(org)),
-                    None => discard_invalid(&mut report, &tlv),
-                },
-                other => {
-                    report.tlvs_unrecognized = report.tlvs_unrecognized.saturating_add(1);
-                    report.warnings.push(DecodeWarning::UnrecognizedTlv {
-                        tlv_type: other,
-                        offset: tlv.offset,
-                    });
-                    lldpdu.optional.push(Tlv::Unknown {
-                        tlv_type: other,
-                        value: tlv.value.to_vec(),
-                    });
-                }
-            }
+        if ttl == 0 {
+            return Ok(Decoded { lldpdu, report });
         }
-
-        if seen_end {
-            let trailing = data.len().saturating_sub(iter.offset());
-            if trailing > 0 {
-                report
-                    .warnings
-                    .push(DecodeWarning::TrailingData { len: trailing });
+        match decode_optional(&mut iter, &mut lldpdu, &mut report)? {
+            Stop::End => {
+                let trailing = data.len().saturating_sub(iter.offset());
+                if trailing > 0 {
+                    report
+                        .warnings
+                        .push(DecodeWarning::TrailingData { len: trailing });
+                }
             }
-        } else {
-            report.warnings.push(DecodeWarning::MissingEndTlv);
+            Stop::NoMoreData => report.warnings.push(DecodeWarning::MissingEndTlv),
+            Stop::Early => {}
         }
 
         Ok(Decoded { lldpdu, report })
@@ -357,14 +305,20 @@ fn expect_mandatory<'a>(
     }
 }
 
+/// The TTL is the first two octets; a longer value is accepted and a
+/// shorter one invalidates the LLDPDU (9.2.7.7.1 c).
 fn parse_ttl(value: &[u8]) -> Result<u16, DecodeError> {
-    let bytes: [u8; 2] = value
-        .try_into()
-        .map_err(|_| DecodeError::InvalidMandatoryTlvLength {
-            tlv_type: tlv_type::TTL,
-            len: value.len(),
-        })?;
-    Ok(u16::from_be_bytes(bytes))
+    crate::ethernet::read_u16(value, 0).ok_or(DecodeError::InvalidMandatoryTlvLength {
+        tlv_type: tlv_type::TTL,
+        len: value.len(),
+    })
+}
+
+fn too_short(tlv: &RawTlv<'_>) -> DecodeError {
+    DecodeError::OptionalTlvTooShort {
+        tlv_type: tlv.tlv_type,
+        len: tlv.value.len(),
+    }
 }
 
 fn discard_invalid(report: &mut DecodeReport, tlv: &RawTlv<'_>) {
@@ -382,4 +336,111 @@ fn discard_duplicate(report: &mut DecodeReport, tlv: &RawTlv<'_>) {
         tlv_type: tlv.tlv_type,
         offset: tlv.offset,
     });
+}
+
+/// Why validation of the optional TLVs ended.
+enum Stop {
+    /// At the End Of LLDPDU TLV.
+    End,
+    /// The data ran out without one.
+    NoMoreData,
+    /// At a TLV after which the rest of the LLDPDU is not processed.
+    Early,
+}
+
+/// Validates the TLVs after the three mandatory ones (9.2.7.7.1 d to h,
+/// 9.2.7.7.2).
+fn decode_optional(
+    iter: &mut TlvIter<'_>,
+    lldpdu: &mut Lldpdu,
+    report: &mut DecodeReport,
+) -> Result<Stop, DecodeError> {
+    let mut seen_once = [false; 4]; // types 4, 5, 6, 7
+    for item in iter {
+        let tlv = match item {
+            Ok(tlv) => tlv,
+            Err(
+                DecodeError::TruncatedTlv { offset, .. }
+                | DecodeError::TruncatedTlvHeader { offset },
+            ) => {
+                report.tlvs_discarded = report.tlvs_discarded.saturating_add(1);
+                report.warnings.push(DecodeWarning::TruncatedTlv { offset });
+                return Ok(Stop::Early);
+            }
+            Err(e) => return Err(e),
+        };
+        match tlv.tlv_type {
+            tlv_type::END => {
+                if !tlv.value.is_empty() {
+                    report.warnings.push(DecodeWarning::EndTlvNonZeroLength {
+                        len: tlv.value.len(),
+                    });
+                }
+                return Ok(Stop::End);
+            }
+            tlv_type::CHASSIS_ID | tlv_type::PORT_ID | tlv_type::TTL => {
+                return Err(DecodeError::DuplicateMandatoryTlv {
+                    tlv_type: tlv.tlv_type,
+                });
+            }
+            tlv_type::PORT_DESCRIPTION | tlv_type::SYSTEM_NAME | tlv_type::SYSTEM_DESCRIPTION => {
+                let slot = usize::from(tlv.tlv_type.saturating_sub(tlv_type::PORT_DESCRIPTION));
+                if tlv.value.len() > MAX_STRING_LEN {
+                    discard_invalid(report, &tlv);
+                } else if seen_once.get(slot).copied().unwrap_or(false) {
+                    discard_duplicate(report, &tlv);
+                } else {
+                    if let Some(s) = seen_once.get_mut(slot) {
+                        *s = true;
+                    }
+                    lldpdu.optional.push(match tlv.tlv_type {
+                        tlv_type::PORT_DESCRIPTION => Tlv::PortDescription(tlv.value.to_vec()),
+                        tlv_type::SYSTEM_NAME => Tlv::SystemName(tlv.value.to_vec()),
+                        _ => Tlv::SystemDescription(tlv.value.to_vec()),
+                    });
+                }
+            }
+            tlv_type::SYSTEM_CAPABILITIES => {
+                let caps = SystemCapabilities::parse(tlv.value).ok_or_else(|| too_short(&tlv))?;
+                if seen_once[3] {
+                    discard_duplicate(report, &tlv);
+                } else if caps.is_consistent() {
+                    seen_once[3] = true;
+                    lldpdu.optional.push(Tlv::SystemCapabilities(caps));
+                } else {
+                    discard_invalid(report, &tlv);
+                }
+            }
+            tlv_type::MANAGEMENT_ADDRESS => match ManagementAddress::parse_checked(tlv.value) {
+                Ok(addr) => lldpdu.optional.push(Tlv::ManagementAddress(addr)),
+                Err(ManagementAddressError::Invalid) => discard_invalid(report, &tlv),
+                Err(ManagementAddressError::LengthMismatch) => {
+                    discard_invalid(report, &tlv);
+                    return Ok(Stop::Early);
+                }
+            },
+            tlv_type::ORGANIZATIONAL => {
+                let org = OrgTlv::parse(tlv.value).ok_or_else(|| too_short(&tlv))?;
+                if matches!(
+                    org.decode(),
+                    DecodedOrgTlv::Unknown(_) | DecodedOrgTlv::Unrecognized(_)
+                ) {
+                    report.tlvs_unrecognized = report.tlvs_unrecognized.saturating_add(1);
+                }
+                lldpdu.optional.push(Tlv::Organizational(org));
+            }
+            other => {
+                report.tlvs_unrecognized = report.tlvs_unrecognized.saturating_add(1);
+                report.warnings.push(DecodeWarning::UnrecognizedTlv {
+                    tlv_type: other,
+                    offset: tlv.offset,
+                });
+                lldpdu.optional.push(Tlv::Unknown {
+                    tlv_type: other,
+                    value: tlv.value.to_vec(),
+                });
+            }
+        }
+    }
+    Ok(Stop::NoMoreData)
 }

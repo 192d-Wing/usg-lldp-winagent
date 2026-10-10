@@ -253,25 +253,35 @@ fn duplicate_mandatory_rejected() {
 }
 
 #[test]
-fn bad_tlv_lengths_rejected() {
-    // Declared length runs past the end.
-    let mut bytes = [chassis_mac(), port_name(), ttl(120)].concat();
+fn optional_tlv_past_end_of_frame_is_discarded_alone() {
+    // 9.2.7.7.2 e): the TLV is discarded, the TLVs before it stand.
+    let mut bytes = [chassis_mac(), port_name(), ttl(120), tlv(4, b"uplink")].concat();
+    let cut = bytes.len();
     bytes.extend_from_slice(&[(5 << 1), 0x10, b'a']);
-    assert!(matches!(
-        Lldpdu::decode(&bytes),
-        Err(DecodeError::TruncatedTlv {
-            declared: 16,
-            remaining: 1,
-            ..
-        })
-    ));
+    let d = Lldpdu::decode(&bytes).unwrap();
+    assert_eq!(d.lldpdu.port_description(), Some(&b"uplink"[..]));
+    assert_eq!(d.lldpdu.system_name(), None);
+    assert_eq!(d.report.tlvs_discarded, 1);
+    assert_eq!(
+        d.report.warnings,
+        vec![DecodeWarning::TruncatedTlv { offset: cut }]
+    );
     // Single trailing header octet.
     let mut bytes = [chassis_mac(), port_name(), ttl(120)].concat();
     bytes.push(0x0a);
+    let d = Lldpdu::decode(&bytes).unwrap();
+    assert_eq!(d.report.tlvs_discarded, 1);
+    // In a mandatory TLV the same fault invalidates the LLDPDU.
+    let mut bytes = [chassis_mac(), port_name()].concat();
+    bytes.extend_from_slice(&[(3 << 1), 2, 0]);
     assert!(matches!(
         Lldpdu::decode(&bytes),
-        Err(DecodeError::TruncatedTlvHeader { .. })
+        Err(DecodeError::TruncatedTlv { .. })
     ));
+}
+
+#[test]
+fn bad_tlv_lengths_rejected() {
     // Chassis ID with only a subtype.
     let bytes = [tlv(1, &[4]), port_name(), ttl(1), end()].concat();
     assert_eq!(
@@ -301,7 +311,7 @@ fn bad_tlv_lengths_rejected() {
             len: 256
         })
     );
-    // TTL wrong length.
+    // TTL shorter than its two octets.
     let bytes = [chassis_mac(), port_name(), tlv(3, &[1]), end()].concat();
     assert_eq!(
         Lldpdu::decode(&bytes),
@@ -310,29 +320,18 @@ fn bad_tlv_lengths_rejected() {
             len: 1
         })
     );
-    let bytes = [chassis_mac(), port_name(), tlv(3, &[0, 0, 0]), end()].concat();
-    assert_eq!(
-        Lldpdu::decode(&bytes),
-        Err(DecodeError::InvalidMandatoryTlvLength {
-            tlv_type: 3,
-            len: 3
-        })
-    );
+    // A longer TTL TLV is accepted; the first two octets are the TTL.
+    let bytes = [chassis_mac(), port_name(), tlv(3, &[0, 90, 7]), end()].concat();
+    assert_eq!(Lldpdu::decode(&bytes).unwrap().lldpdu.ttl, 90);
 }
 
 #[test]
-fn invalid_identifiers_rejected() {
-    // MAC subtype with 5 octets.
+fn identifiers_are_validated_by_length_only() {
+    // 9.2.7.7.1 checks the length of the Chassis ID and Port ID TLVs, not
+    // that the value fits its subtype. Odd values are shown as hex.
     let bytes = [tlv(1, &[4, 1, 2, 3, 4, 5]), port_name(), ttl(1), end()].concat();
-    assert_eq!(
-        Lldpdu::decode(&bytes),
-        Err(DecodeError::InvalidIdentifier {
-            tlv_type: 1,
-            subtype: 4,
-            len: 5
-        })
-    );
-    // Port ID MAC subtype with 7 octets.
+    let d = Lldpdu::decode(&bytes).unwrap();
+    assert_eq!(d.lldpdu.chassis_id.to_string(), "01:02:03:04:05");
     let bytes = [
         chassis_mac(),
         tlv(2, &[3, 1, 2, 3, 4, 5, 6, 7]),
@@ -340,24 +339,12 @@ fn invalid_identifiers_rejected() {
         end(),
     ]
     .concat();
-    assert_eq!(
-        Lldpdu::decode(&bytes),
-        Err(DecodeError::InvalidIdentifier {
-            tlv_type: 2,
-            subtype: 3,
-            len: 7
-        })
-    );
+    let d = Lldpdu::decode(&bytes).unwrap();
+    assert_eq!(d.lldpdu.port_id.to_string(), "01:02:03:04:05:06:07");
     // Network address subtype with IPv4 family but 3 octets.
     let bytes = [tlv(1, &[5, 1, 10, 0, 0]), port_name(), ttl(1), end()].concat();
-    assert_eq!(
-        Lldpdu::decode(&bytes),
-        Err(DecodeError::InvalidIdentifier {
-            tlv_type: 1,
-            subtype: 5,
-            len: 4
-        })
-    );
+    let d = Lldpdu::decode(&bytes).unwrap();
+    assert_eq!(d.lldpdu.chassis_id.value, vec![1, 10, 0, 0]);
     // Reserved subtype with a value is accepted (not our business to reject).
     let bytes = [tlv(1, &[200, 1, 2]), port_name(), ttl(1), end()].concat();
     let d = Lldpdu::decode(&bytes).unwrap();
@@ -370,6 +357,17 @@ fn zero_ttl_and_max_ttl_decode() {
     assert_eq!(d.lldpdu.ttl, 0);
     let d = Lldpdu::decode(&[chassis_mac(), port_name(), ttl(65535), end()].concat()).unwrap();
     assert_eq!(d.lldpdu.ttl, 65535);
+}
+
+#[test]
+fn shutdown_lldpdu_is_not_validated_past_the_ttl() {
+    // 9.2.7.7.1 c) 3) i): with TTL 0, validation ends at the TTL TLV.
+    let mut bytes = [chassis_mac(), port_name(), ttl(0), tlv(5, b"name")].concat();
+    bytes.extend_from_slice(&[(7 << 1), 4, 0]);
+    let d = Lldpdu::decode(&bytes).unwrap();
+    assert_eq!(d.lldpdu.ttl, 0);
+    assert_eq!(d.lldpdu.optional, Vec::new());
+    assert_eq!(d.report.warnings, Vec::new());
 }
 
 #[test]
@@ -439,18 +437,30 @@ fn overlong_string_tlv_discarded() {
 }
 
 #[test]
-fn invalid_capabilities_discarded() {
-    let bytes = [
-        chassis_mac(),
-        port_name(),
-        ttl(1),
-        tlv(7, &[0, 4, 0]),
-        end(),
-    ]
-    .concat();
-    let d = Lldpdu::decode(&bytes).unwrap();
+fn invalid_capabilities_rejected_or_discarded() {
+    let with = |caps: &[u8]| [chassis_mac(), port_name(), ttl(1), tlv(7, caps), end()].concat();
+    // Shorter than its fields: the LLDPDU is invalid (9.2.7.7.2 b).
+    assert_eq!(
+        Lldpdu::decode(&with(&[0, 4, 0])),
+        Err(DecodeError::OptionalTlvTooShort {
+            tlv_type: 7,
+            len: 3
+        })
+    );
+    // Enabled but not supported: the TLV is discarded (8.5.8.3).
+    let d = Lldpdu::decode(&with(&[0, 4, 0, 0x14])).unwrap();
     assert_eq!(d.lldpdu.system_capabilities(), None);
     assert_eq!(d.report.tlvs_discarded, 1);
+    // Longer than its fields: accepted, the extra octets ignored (6.6.1).
+    let d = Lldpdu::decode(&with(&[0, 0x14, 0, 4, 9, 9])).unwrap();
+    assert_eq!(
+        d.lldpdu.system_capabilities(),
+        Some(SystemCapabilities {
+            supported: 0x14,
+            enabled: 4
+        })
+    );
+    assert_eq!(d.report.tlvs_discarded, 0);
 }
 
 #[test]
@@ -481,22 +491,50 @@ fn management_address_edge_cases() {
         }
     );
     assert_eq!(other.address.to_string(), "afn6:abcd");
-    // In an LLDPDU, a bad management address is discarded but the PDU survives.
+    // The address may be 1 to 31 octets (8.5.9.4).
+    let mut long = vec![32, 6];
+    long.extend_from_slice(&[0xee; 31]);
+    long.extend_from_slice(&[1, 0, 0, 0, 0, 0]);
+    assert!(ManagementAddress::parse(&long).is_some());
+    long[0] = 33;
+    long.insert(2, 0xee);
+    assert!(ManagementAddress::parse(&long).is_none());
+    // In an LLDPDU, a management address whose length does not match its
+    // length fields is ignored and processing ends there (8.5.9.9 f): the
+    // TLVs before it stand and those after it are not looked at.
     let bytes = [
         chassis_mac(),
         port_name(),
         ttl(1),
+        tlv(5, b"kept"),
         tlv(8, &[5, 1, 10, 0, 0]),
+        tlv(6, b"not reached"),
         end(),
     ]
     .concat();
     let d = Lldpdu::decode(&bytes).unwrap();
     assert_eq!(d.lldpdu.management_addresses().count(), 0);
+    assert_eq!(d.lldpdu.system_name(), Some(&b"kept"[..]));
+    assert_eq!(d.lldpdu.system_description(), None);
+    assert_eq!(d.report.tlvs_discarded, 1);
+    // A field out of range discards only that TLV.
+    let bytes = [
+        chassis_mac(),
+        port_name(),
+        ttl(1),
+        tlv(8, &bad),
+        tlv(6, b"reached"),
+        end(),
+    ]
+    .concat();
+    let d = Lldpdu::decode(&bytes).unwrap();
+    assert_eq!(d.lldpdu.management_addresses().count(), 0);
+    assert_eq!(d.lldpdu.system_description(), Some(&b"reached"[..]));
     assert_eq!(d.report.tlvs_discarded, 1);
 }
 
 #[test]
-fn org_tlv_too_short_discarded() {
+fn org_tlv_too_short_rejected() {
     let bytes = [
         chassis_mac(),
         port_name(),
@@ -505,9 +543,25 @@ fn org_tlv_too_short_discarded() {
         end(),
     ]
     .concat();
+    assert_eq!(
+        Lldpdu::decode(&bytes),
+        Err(DecodeError::OptionalTlvTooShort {
+            tlv_type: 127,
+            len: 3
+        })
+    );
+    // An OUI with no decoder is kept and counted as unrecognized (9.2.7.7.3).
+    let bytes = [
+        chassis_mac(),
+        port_name(),
+        ttl(1),
+        tlv(127, &[0xde, 0xad, 0xbe, 1, 2, 3]),
+        end(),
+    ]
+    .concat();
     let d = Lldpdu::decode(&bytes).unwrap();
-    assert_eq!(d.lldpdu.organizational().count(), 0);
-    assert_eq!(d.report.tlvs_discarded, 1);
+    assert_eq!(d.lldpdu.organizational().count(), 1);
+    assert_eq!(d.report.tlvs_unrecognized, 1);
     // Exactly 4 octets (no data) is valid.
     let bytes = [
         chassis_mac(),

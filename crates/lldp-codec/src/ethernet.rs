@@ -1,4 +1,4 @@
-//! Ethernet encapsulation of LLDPDUs (IEEE 802.1AB-2016 clause 7.4 and 8.1).
+//! Ethernet encapsulation of LLDPDUs (IEEE Std 802.1AB-2016 clause 7).
 
 use core::fmt;
 
@@ -44,7 +44,7 @@ impl fmt::Display for MacAddr {
 }
 
 /// The LLDP multicast destination addresses and their propagation scope
-/// (IEEE 802.1AB-2016 Table 7-1).
+/// (IEEE Std 802.1AB-2016 7.1, Table 7-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum LldpDestination {
     /// 01-80-C2-00-00-0E. Not forwarded by any bridge. The default for

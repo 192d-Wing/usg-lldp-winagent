@@ -1,6 +1,13 @@
 //! The per-port LLDP agent: transmit state machine, transmit timer and
-//! credit machine, and receive state machine (IEEE 802.1AB-2016 clause
-//! 9.2.7 through 9.2.10, `verify`).
+//! credit machine, and receive state machine.
+//!
+//! Checked against IEEE Std 802.1AB-2016: Figures 9-1 to 9-3 and the
+//! variables and procedures of 9.2.2 to 9.2.7. Three things differ on
+//! purpose (docs/standards-compliance.md section 4.1): a fast transmission
+//! period also starts when the port starts transmitting (decision I4; the
+//! standard starts one for a new neighbor or a local change), neighbors are
+//! deleted when the link goes down rather than kept until it returns or
+//! they age out, and [`Port::readvertise`] is an addition.
 //!
 //! `Port` performs no I/O and reads no clock. Every entry point takes
 //! `now` and returns the [`Action`]s the caller must carry out, so the
@@ -9,7 +16,7 @@
 use std::time::{Duration, Instant};
 
 use lldp_codec::ethernet::{parse_lldp_frame, write_lldp_frame};
-use lldp_codec::{DecodeError, LldpDestination, Lldpdu, MacAddr};
+use lldp_codec::{DecodeError, EncodeError, LldpDestination, Lldpdu, MacAddr};
 
 use crate::local::{LocalPort, LocalSystem};
 use crate::neighbor::{Insert, Msap, Neighbor, NeighborTable};
@@ -146,6 +153,10 @@ pub struct Port {
     credit_tick: Instant,
     /// `txNow`: a transmission is requested.
     tx_now: bool,
+    /// The requested transmission passes through `TX_TIMER_EXPIRES` and so
+    /// decrements `txFast` (timer expiry, new neighbor). A `localChange`
+    /// goes straight to `SIGNAL_TX` and does not.
+    tx_dec_fast: bool,
     /// When the last LLDPDU (other than a shutdown) was sent.
     last_tx: Option<Instant>,
     neighbors: NeighborTable,
@@ -176,6 +187,7 @@ impl Port {
             tx_credit: timers.tx_credit_max,
             credit_tick: now,
             tx_now: false,
+            tx_dec_fast: false,
             last_tx: None,
             neighbors,
             stats: PortStats::default(),
@@ -233,6 +245,7 @@ impl Port {
         self.credit_tick = now.checked_add(Duration::from_secs(1)).unwrap_or(now);
         self.tx_ttr = None;
         self.tx_now = true;
+        self.tx_dec_fast = true;
     }
 
     /// The link came up.
@@ -252,9 +265,12 @@ impl Port {
         actions
     }
 
-    /// The link went down. Neighbors are dropped (`rxInitializeLLDP` on
-    /// the next link up would do so anyway) and transmission stops. No
-    /// shutdown LLDPDU can be sent on a down link.
+    /// The link went down. Transmission stops; no shutdown LLDPDU can be
+    /// sent on a down link. Neighbors are dropped at once, which differs
+    /// from the standard on purpose: there they are kept while the port is
+    /// down until they age out, and deleted by `rxInitializeLLDP` when it
+    /// comes back (9.1.6, Figure 9-2). A workstation should not show the
+    /// switch port of a cable that has been pulled.
     pub fn link_down(&mut self, _now: Instant) -> Vec<Action> {
         if !self.link_up {
             return Vec::new();
@@ -304,10 +320,13 @@ impl Port {
         }
     }
 
-    /// Signals that locally advertised information changed and an LLDPDU
-    /// should be sent as soon as credit allows.
+    /// `somethingChangedLocal` (9.2.7.8): locally advertised information
+    /// changed. An LLDPDU is sent as soon as credit allows, and a fast
+    /// transmission period of `txFastInit` further LLDPDUs follows so that
+    /// neighbors see the new values.
     pub fn local_change(&mut self, now: Instant) -> Vec<Action> {
         if self.tx_state == TxState::Running {
+            self.tx_fast = self.timers.tx_fast_init;
             self.tx_now = true;
         }
         self.tick(now)
@@ -316,6 +335,7 @@ impl Port {
     /// Starts a new fast transmission period with unchanged content, for
     /// when the neighbor may have lost our entry: resume from sleep, or
     /// another local agent sent a shutdown LLDPDU carrying our identity.
+    /// Not in the standard.
     pub fn readvertise(&mut self, now: Instant) -> Vec<Action> {
         if self.tx_state == TxState::Running {
             self.tx_fast = self.timers.tx_fast_init;
@@ -325,9 +345,11 @@ impl Port {
                 .last_tx
                 .and_then(|t| t.checked_add(self.timers.fast_tx_interval()))
                 .filter(|next| *next > now);
-            match spaced {
-                Some(next) => self.tx_ttr = Some(next),
-                None => self.tx_now = true,
+            if let Some(next) = spaced {
+                self.tx_ttr = Some(next);
+            } else {
+                self.tx_now = true;
+                self.tx_dec_fast = true;
             }
         }
         self.tick(now)
@@ -384,9 +406,34 @@ impl Port {
         let bytes = pdu
             .encode(self.cfg.max_lldpdu_len)
             .map_err(|e| e.to_string())?;
-        let mut frame = Vec::with_capacity(bytes.len().saturating_add(14));
-        write_lldp_frame(&mut frame, self.cfg.destination, self.mac, &bytes);
-        Ok(frame)
+        Ok(self.frame_of(&bytes))
+    }
+
+    fn frame_of(&self, lldpdu: &[u8]) -> Vec<u8> {
+        let mut frame = Vec::with_capacity(lldpdu.len().saturating_add(14));
+        write_lldp_frame(&mut frame, self.cfg.destination, self.mac, lldpdu);
+        frame
+    }
+
+    /// `mibConstrInfoLLDPDU` (9.2.7.2): when the selected TLVs do not fit
+    /// in an LLDPDU, the length error is counted and optional TLVs are
+    /// left out, last first, until the rest fits.
+    fn info_frame(&mut self) -> Result<Vec<u8>, String> {
+        let mut pdu = self.local_lldpdu();
+        let mut dropped = false;
+        let bytes = loop {
+            match pdu.encode(self.cfg.max_lldpdu_len) {
+                Ok(bytes) => break bytes,
+                Err(EncodeError::LldpduTooLarge { .. }) if pdu.optional.pop().is_some() => {
+                    dropped = true;
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        };
+        if dropped {
+            PortStats::inc(&mut self.stats.tx_lldpdu_length_errors);
+        }
+        Ok(self.frame_of(&bytes))
     }
 
     /// Processes a received Ethernet frame.
@@ -407,10 +454,13 @@ impl Port {
             // Our own transmission echoed back by the capture backend.
             return actions;
         }
+        // A frame to any other address is not for this agent (7.4).
         let Some(scope) = LldpDestination::from_mac(header.dst) else {
-            PortStats::inc(&mut self.stats.rx_frames_discarded_total);
             return actions;
         };
+        // statsFramesInTotal counts every LLDP frame received, including
+        // those then discarded (9.2.6.4, 9.2.7.7.1).
+        PortStats::inc(&mut self.stats.rx_frames_total);
         let decoded = match Lldpdu::decode(pdu) {
             Ok(d) => d,
             Err(e) => {
@@ -419,7 +469,11 @@ impl Port {
                 return actions;
             }
         };
-        PortStats::inc(&mut self.stats.rx_frames_total);
+        // A discarded TLV also makes this an LLDPDU received with an error
+        // (9.2.7.7.2 c to e).
+        if decoded.report.tlvs_discarded > 0 {
+            PortStats::inc(&mut self.stats.rx_frames_errors);
+        }
         self.stats.rx_tlvs_discarded_total = self
             .stats
             .rx_tlvs_discarded_total
@@ -453,11 +507,15 @@ impl Port {
                 if let Some(n) = self.neighbors.get(&msap) {
                     actions.push(Action::Event(PortEvent::NeighborAdded(n.clone())));
                 }
-                // A new neighbor starts a fast transmission period so it
-                // learns about us promptly.
+                // TX_FAST_START: a new neighbor starts a fast transmission
+                // period so it learns about us promptly; one already under
+                // way is not extended.
                 if self.tx_state == TxState::Running {
-                    self.tx_fast = self.timers.tx_fast_init;
+                    if self.tx_fast == 0 {
+                        self.tx_fast = self.timers.tx_fast_init;
+                    }
                     self.tx_now = true;
+                    self.tx_dec_fast = true;
                 }
             }
             Insert::Updated => {
@@ -526,11 +584,11 @@ impl Port {
 
         if self.tx_ttr.is_some_and(|t| t <= now) {
             self.tx_now = true;
+            self.tx_dec_fast = true;
         }
 
         if self.tx_now && self.tx_credit > 0 {
-            let pdu = self.local_lldpdu();
-            match self.frame_for(&pdu) {
+            match self.info_frame() {
                 Ok(frame) => {
                     PortStats::inc(&mut self.stats.tx_frames_total);
                     actions.push(Action::Transmit(frame));
@@ -540,10 +598,13 @@ impl Port {
             self.tx_credit = self.tx_credit.saturating_sub(1);
             self.tx_now = false;
             self.last_tx = Some(now);
-            // txFast counts LLDPDUs sent in the fast period: this frame
-            // consumed one, and the interval to the next frame is fast only
-            // while more remain (`verify` against 9.2.5 / 9.2.10).
-            self.tx_fast = self.tx_fast.saturating_sub(1);
+            // TX_TIMER_EXPIRES then SIGNAL_TX: txFast counts the LLDPDUs
+            // left in the fast period, and the interval to the next one is
+            // fast only while some remain. With txFastInit = 4 that is four
+            // frames one msgFastTx apart.
+            if std::mem::take(&mut self.tx_dec_fast) {
+                self.tx_fast = self.tx_fast.saturating_sub(1);
+            }
             let interval = if self.tx_fast > 0 {
                 self.timers.fast_tx_interval()
             } else {
