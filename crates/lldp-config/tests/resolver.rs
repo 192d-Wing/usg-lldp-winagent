@@ -196,6 +196,41 @@ fn management_address_rules() {
 }
 
 #[test]
+fn mac_is_the_management_address_when_there_is_no_other() {
+    // 802.1AB-2016 8.5.9.4 b): family 6 (all802) and the MAC address.
+    let mut bare = iface();
+    bare.addresses.clear();
+    let picked = lldp_config::select_management_addresses(&Config::default(), &bare);
+    assert_eq!(picked.len(), 1);
+    assert_eq!(
+        picked[0].address.family(),
+        lldp_codec::AddressFamily::Mac802
+    );
+    assert_eq!(picked[0].address.to_string(), "00:1b:21:aa:bb:cc");
+    assert_eq!(picked[0].interface_number, 12);
+    let mut bytes = Vec::new();
+    picked[0].write(&mut bytes).unwrap();
+    assert_eq!(bytes[..8], [7, 6, 0x00, 0x1b, 0x21, 0xaa, 0xbb, 0xcc]);
+    // Only link-local addresses, which are not advertised by default.
+    let mut link_local = iface();
+    link_local.addresses = vec![addr("fe80::1", false, true)];
+    let picked = lldp_config::select_management_addresses(&Config::default(), &link_local);
+    assert_eq!(picked[0].address.to_string(), "00:1b:21:aa:bb:cc");
+    // Not when the TLV is turned off, nor without a MAC.
+    let mut off = Config::default();
+    off.lldp.advertise.management_address = false;
+    assert_eq!(
+        lldp_config::select_management_addresses(&off, &bare).len(),
+        0
+    );
+    bare.mac = None;
+    assert_eq!(
+        lldp_config::select_management_addresses(&Config::default(), &bare).len(),
+        0
+    );
+}
+
+#[test]
 fn interface_without_mac_falls_back_to_name() {
     let r = ConfigResolver::new(Config::default(), facts());
     let mut i = iface();

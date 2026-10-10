@@ -500,6 +500,15 @@ impl NetworkAddress {
     /// octet and an address of 1 to 31 octets (8.5.9.2, Figure 8-11).
     pub const MAX_LEN: usize = 32;
 
+    /// An IEEE 802 MAC address (IANA family 6), the management address to
+    /// advertise when the system has no other (8.5.9.4 b).
+    pub fn mac(mac: MacAddr) -> Self {
+        Self::Other {
+            family: AddressFamily::Mac802.as_u8(),
+            octets: mac.0.to_vec(),
+        }
+    }
+
     /// Address family.
     pub fn family(&self) -> AddressFamily {
         match self {
@@ -571,6 +580,11 @@ impl fmt::Display for NetworkAddress {
             Self::Ipv4(a) => write!(f, "{a}"),
             Self::Ipv6(a) => write!(f, "{a}"),
             Self::Other { family, octets } => {
+                if AddressFamily::from_u8(*family) == AddressFamily::Mac802
+                    && let Some(mac) = MacAddr::from_slice(octets).filter(|_| octets.len() == 6)
+                {
+                    return write!(f, "{mac}");
+                }
                 write!(f, "afn{family}:")?;
                 for b in octets {
                     write!(f, "{b:02x}")?;

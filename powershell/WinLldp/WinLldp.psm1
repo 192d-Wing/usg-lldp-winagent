@@ -196,6 +196,7 @@ function Get-WinLldpInterface {
                 Mode           = $i.mode
                 Managed        = [bool]$i.managed
                 Neighbors      = [int]$i.neighbors
+                TooManyNeighbors = [bool]$i.too_many_neighbors
                 Addresses      = @($i.addresses)
                 ComputerName   = $env:COMPUTERNAME
             } | Add-WinLldpType -TypeName 'WinLldp.Interface'

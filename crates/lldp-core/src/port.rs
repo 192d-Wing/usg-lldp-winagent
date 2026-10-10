@@ -59,6 +59,10 @@ pub struct PortConfig {
     pub max_neighbors: usize,
     /// Maximum LLDPDU size to transmit (1500 for standard frames).
     pub max_lldpdu_len: usize,
+    /// Delay before the first LLDPDU each time transmission starts, so
+    /// that the ports of one system do not all transmit at the same
+    /// instant (recommended in 9.1.1 and 9.2.7.12).
+    pub tx_stagger: Duration,
 }
 
 impl Default for PortConfig {
@@ -68,6 +72,7 @@ impl Default for PortConfig {
             destination: LldpDestination::NearestBridge,
             max_neighbors: 8,
             max_lldpdu_len: 1500,
+            tx_stagger: Duration::ZERO,
         }
     }
 }
@@ -160,6 +165,8 @@ pub struct Port {
     /// When the last LLDPDU (other than a shutdown) was sent.
     last_tx: Option<Instant>,
     neighbors: NeighborTable,
+    /// `tooManyNeighborsTimer`: until when `tooManyNeighbors` is set.
+    too_many_until: Option<Instant>,
     stats: PortStats,
 }
 
@@ -190,6 +197,7 @@ impl Port {
             tx_dec_fast: false,
             last_tx: None,
             neighbors,
+            too_many_until: None,
             stats: PortStats::default(),
         }
     }
@@ -197,6 +205,13 @@ impl Port {
     /// Current neighbors.
     pub const fn neighbors(&self) -> &NeighborTable {
         &self.neighbors
+    }
+
+    /// `tooManyNeighbors` (9.2.5.15): an LLDPDU from a new neighbor was
+    /// dropped because the table was full, and the time that neighbor's
+    /// information would have been valid has not yet passed.
+    pub fn too_many_neighbors(&self, now: Instant) -> bool {
+        self.too_many_until.is_some_and(|t| t > now)
     }
 
     /// Current statistics.
@@ -243,9 +258,14 @@ impl Port {
         self.tx_fast = self.timers.tx_fast_init;
         self.tx_credit = self.timers.tx_credit_max;
         self.credit_tick = now.checked_add(Duration::from_secs(1)).unwrap_or(now);
-        self.tx_ttr = None;
-        self.tx_now = true;
-        self.tx_dec_fast = true;
+        if self.cfg.tx_stagger.is_zero() {
+            self.tx_ttr = None;
+            self.tx_now = true;
+            self.tx_dec_fast = true;
+        } else {
+            self.tx_ttr = now.checked_add(self.cfg.tx_stagger);
+            self.tx_now = false;
+        }
     }
 
     /// The link came up.
@@ -392,6 +412,8 @@ impl Port {
     }
 
     fn remove_all(&mut self, reason: RemoveReason) -> Vec<Action> {
+        // rxInitializeLLDP also clears tooManyNeighbors (9.2.7.6).
+        self.too_many_until = None;
         self.neighbors
             .clear()
             .into_iter()
@@ -501,7 +523,22 @@ impl Port {
             return actions;
         }
 
-        match self.neighbors.upsert(msap.clone(), header.src, lldpdu, now) {
+        let rx_ttl = lldpdu.ttl;
+        let outcome = self.neighbors.upsert(msap.clone(), header.src, lldpdu, now);
+        match outcome {
+            // There was room for new information (9.2.7.7.4 b).
+            Insert::Added | Insert::Updated => self.too_many_until = None,
+            // tooManyNeighborsTimer = max(tooManyNeighborsTimer, rxTTL)
+            // (9.2.7.7.5 b).
+            Insert::Dropped => {
+                let until = now
+                    .checked_add(Duration::from_secs(u64::from(rx_ttl)))
+                    .unwrap_or(now);
+                self.too_many_until = Some(self.too_many_until.map_or(until, |t| t.max(until)));
+            }
+            Insert::Refreshed => {}
+        }
+        match outcome {
             Insert::Added => {
                 PortStats::inc(&mut self.stats.rem_inserts);
                 if let Some(n) = self.neighbors.get(&msap) {

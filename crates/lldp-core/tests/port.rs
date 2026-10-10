@@ -216,6 +216,26 @@ fn second_new_neighbor_does_not_extend_a_fast_period() {
 }
 
 #[test]
+fn stagger_delays_the_first_lldpdu() {
+    let t0 = Instant::now();
+    let ms = Duration::from_millis;
+    let cfg = PortConfig {
+        tx_stagger: ms(300),
+        ..PortConfig::default()
+    };
+    let mut p = Port::new(cfg, TimerParams::DEFAULT, system(), local(), OUR_MAC, t0);
+    assert_eq!(transmits(&p.link_up(t0)), Vec::<&Vec<u8>>::new());
+    assert_eq!(p.next_deadline(), Some(t0 + ms(300)));
+    assert_eq!(transmits(&p.tick(t0 + ms(300))).len(), 1);
+    // The fast period follows from there.
+    for at in [1300, 2300, 3300] {
+        assert_eq!(p.next_deadline(), Some(t0 + ms(at)));
+        assert_eq!(transmits(&p.tick(t0 + ms(at))).len(), 1);
+    }
+    assert_eq!(p.next_deadline(), Some(t0 + ms(33_300)));
+}
+
+#[test]
 fn link_up_starts_fast_transmission_then_normal_interval() {
     let t0 = Instant::now();
     let mut p = port(AdminStatus::RxTx, t0);
@@ -363,6 +383,9 @@ fn too_many_neighbors_drops_newest() {
     assert_eq!(p.neighbors().len(), 2);
     assert_eq!(p.stats().rem_drops, 1);
     assert_eq!(p.stats().rx_frames_discarded_total, 1);
+    // tooManyNeighbors stays set for the TTL of the dropped LLDPDU.
+    assert!(p.too_many_neighbors(t0 + Duration::from_secs(59)));
+    assert!(!p.too_many_neighbors(t0 + Duration::from_secs(60)));
     // Existing neighbors can still refresh.
     assert_eq!(
         events(&p.handle_frame(&switch_frame("p1", 60, SW_MAC), t0)),

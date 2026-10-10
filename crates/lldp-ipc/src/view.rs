@@ -101,6 +101,10 @@ pub struct InterfaceView {
     pub managed: bool,
     /// Neighbor count.
     pub neighbors: usize,
+    /// `tooManyNeighbors`: a neighbor is being left out because the table
+    /// is full.
+    #[serde(default)]
+    pub too_many_neighbors: bool,
     /// Unicast addresses as text.
     pub addresses: Vec<String>,
 }

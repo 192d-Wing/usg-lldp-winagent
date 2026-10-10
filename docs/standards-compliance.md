@@ -193,15 +193,25 @@ Deliberate differences:
   models one agent per address (6.7).
 - Counters are 64-bit and saturate; 9.2.6 specifies 32-bit.
 
+Added afterwards (2026-10-10):
+
+- The tooManyNeighbors variable and timer (9.1.4, 9.2.5.15, 9.2.7.7.5),
+  reported per interface as `too_many_neighbors`.
+- When no IP address qualifies, the Management Address TLV carries the
+  interface's MAC address (8.5.9.4 b, 8.5.9.9 a).
+- The ports of one system start transmitting 100 ms apart (recommended in
+  9.1.1 and 9.2.7.12). The first port is not delayed.
+
 Not implemented:
 
-- The tooManyNeighbors variable and timer (9.1.4, 9.2.7.7.5). The drop is
-  counted and logged (event 1304).
-- Recommendations: a Management Address TLV in every LLDPDU, the MAC
-  address when no other is available (8.5.9.4, 8.5.9.9); transmission to
-  the nearest non-TPMR and nearest customer bridge addresses (Table 7-2);
-  staggered transmission across ports (9.1.1); tick jitter on shared
-  media (9.2.2).
+- Transmission to the nearest non-TPMR and nearest customer bridge
+  addresses, recommended for an end station in Table 7-2. It needs a
+  separate agent per address and is out of scope (section 6). LLDPDUs
+  sent to those addresses are received.
+- Tick jitter on shared media (9.2.2). The agent does not transmit on
+  Wi-Fi (decision D1), and switched Ethernet is point to point.
+- Recommendations declined by decision: hardware type in the System
+  Description (8.5.7.2; off by default, decision C3).
 - The SNMP MIB (clause 11). Storage and retrieval equivalent to 10.1 is
   provided over the IPC pipe (5.3 n).
 
