@@ -102,6 +102,14 @@ fn readvertise_restarts_the_fast_period_with_unchanged_content() {
         assert_eq!(transmits(&p.tick(t + Duration::from_secs(s))).len(), 1);
     }
     assert_eq!(p.next_deadline(), Some(t + Duration::from_secs(33)));
+
+    // Right after a scheduled frame, the fast period starts one fast
+    // interval later instead of repeating the frame at once.
+    let t2 = t + Duration::from_secs(33);
+    assert_eq!(transmits(&p.tick(t2)).len(), 1);
+    assert_eq!(transmits(&p.readvertise(t2)), Vec::<&Vec<u8>>::new());
+    assert_eq!(p.next_deadline(), Some(t2 + Duration::from_secs(1)));
+    assert_eq!(transmits(&p.tick(t2 + Duration::from_secs(1))).len(), 1);
 }
 
 #[test]

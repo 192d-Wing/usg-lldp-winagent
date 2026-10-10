@@ -146,6 +146,8 @@ pub struct Port {
     credit_tick: Instant,
     /// `txNow`: a transmission is requested.
     tx_now: bool,
+    /// When the last LLDPDU (other than a shutdown) was sent.
+    last_tx: Option<Instant>,
     neighbors: NeighborTable,
     stats: PortStats,
 }
@@ -174,6 +176,7 @@ impl Port {
             tx_credit: timers.tx_credit_max,
             credit_tick: now,
             tx_now: false,
+            last_tx: None,
             neighbors,
             stats: PortStats::default(),
         }
@@ -316,7 +319,16 @@ impl Port {
     pub fn readvertise(&mut self, now: Instant) -> Vec<Action> {
         if self.tx_state == TxState::Running {
             self.tx_fast = self.timers.tx_fast_init;
-            self.tx_now = true;
+            // Keep msgFastTx spacing from a frame that has only just gone
+            // out, rather than sending the same LLDPDU twice in a row.
+            let spaced = self
+                .last_tx
+                .and_then(|t| t.checked_add(self.timers.fast_tx_interval()))
+                .filter(|next| *next > now);
+            match spaced {
+                Some(next) => self.tx_ttr = Some(next),
+                None => self.tx_now = true,
+            }
         }
         self.tick(now)
     }
@@ -527,6 +539,7 @@ impl Port {
             }
             self.tx_credit = self.tx_credit.saturating_sub(1);
             self.tx_now = false;
+            self.last_tx = Some(now);
             // txFast counts LLDPDUs sent in the fast period: this frame
             // consumed one, and the interval to the next frame is fast only
             // while more remain (`verify` against 9.2.5 / 9.2.10).

@@ -368,6 +368,20 @@ async fn run(
         }
     });
 
+    // Suspend detection. Modern Standby (S0 low power idle) sends services
+    // no resume power event, so also treat a wall-clock jump across a
+    // short timer sleep as a resume.
+    let resume_watch = Arc::clone(&resume);
+    tokio::spawn(async move {
+        loop {
+            let before = SystemTime::now();
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            if before.elapsed().is_ok_and(|d| d > Duration::from_secs(20)) {
+                resume_watch.notify_one();
+            }
+        }
+    });
+
     // IPC server.
     let ipc_stop = Arc::new(Notify::new());
     if config.ipc.enabled {
