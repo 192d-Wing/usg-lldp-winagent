@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -255,7 +256,10 @@ impl Agent {
             }
         };
         let now = tokio::time::Instant::now().into_std();
-        let cfg = self.resolver.port_config(decision.admin_status);
+        let mut cfg = self.resolver.port_config(decision.admin_status);
+        // Stagger the ports' transmission cycles by 100 ms each.
+        let slot = u64::try_from(self.ports.len() % 10).unwrap_or(0);
+        cfg.tx_stagger = Duration::from_millis(slot.saturating_mul(100));
         let port = Port::new(
             cfg,
             self.resolver.timers(),

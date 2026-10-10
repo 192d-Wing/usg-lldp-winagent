@@ -80,6 +80,7 @@ impl IpcHandler {
                 mode: InterfaceModeView::from(mode),
                 managed: snap.is_some(),
                 neighbors: snap.as_ref().map_or(0, |s| s.neighbors.len()),
+                too_many_neighbors: snap.as_ref().is_some_and(|s| s.too_many_neighbors),
                 addresses: i.addresses.iter().map(|a| a.addr.to_string()).collect(),
             });
         }

@@ -76,7 +76,7 @@ The authoritative definitions are the `serde` structs in
   `destination_mac`, `source_mac`, `lldpdu_hex`, plus the `Lldpdu` members.
 - `Statistics`: the `lldpStatsRx/TxPort*` counters (including
   `tx_lldpdu_length_errors`) plus `rem_inserts`, `rem_deletes`,
-  `rem_drops`, `rx_queue_overflow`. `rx_frames_total` counts every LLDP
+  `rem_drops`, `rx_queue_overflow`. `Interface` has `too_many_neighbors` (the 802.1AB variable). `rx_frames_total` counts every LLDP
   frame received, including those then discarded.
 
 `decoded` for organizational TLVs is an object with a `type` member naming

@@ -35,6 +35,8 @@ pub struct PortSnapshot {
     pub neighbors: Vec<Neighbor>,
     /// Counters.
     pub stats: PortStats,
+    /// `tooManyNeighbors`.
+    pub too_many_neighbors: bool,
     /// Administrative status.
     pub admin_status: AdminStatus,
     /// Link state.
@@ -101,6 +103,7 @@ pub async fn run_port(
                         let _ = reply.send(PortSnapshot {
                             neighbors: port.neighbors().iter().cloned().collect(),
                             stats: *port.stats(),
+                            too_many_neighbors: port.too_many_neighbors(now),
                             admin_status: port.admin_status(),
                             link_up: port.is_link_up(),
                             local_lldpdu: port.local_lldpdu(),
