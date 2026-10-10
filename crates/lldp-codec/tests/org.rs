@@ -90,7 +90,17 @@ fn ieee8021_malformed_is_unrecognized() {
         .to_org_tlv()
         .is_none()
     );
-    assert!(Ieee8021Tlv::ProtocolIdentity(vec![]).to_org_tlv().is_none());
+    // A zero-length protocol identity decodes and re-encodes.
+    let empty = org(oui::IEEE_802_1, 4, &[0]);
+    assert_eq!(
+        Ieee8021Tlv::ProtocolIdentity(vec![]).to_org_tlv(),
+        Some(empty)
+    );
+    assert!(
+        Ieee8021Tlv::ProtocolIdentity(vec![0; 256])
+            .to_org_tlv()
+            .is_none()
+    );
     // PPVID 4094 with both flags is the largest valid value.
     assert_eq!(
         Ieee8021Tlv::decode(2, &[0x06, 0x0f, 0xfe]),

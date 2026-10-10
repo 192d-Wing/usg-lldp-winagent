@@ -149,8 +149,7 @@ impl Ieee8021Tlv {
     }
 
     /// Encodes to a raw organizational TLV. Returns `None` if a field is
-    /// out of range (VLAN name over 32 octets, empty or overlong protocol
-    /// identity).
+    /// out of range (VLAN name over 32 octets, overlong protocol identity).
     pub fn to_org_tlv(&self) -> Option<OrgTlv> {
         let mut data = Vec::with_capacity(8);
         match self {
@@ -174,7 +173,7 @@ impl Ieee8021Tlv {
                 data.extend_from_slice(name);
             }
             Self::ProtocolIdentity(id) => {
-                if id.is_empty() || id.len() > MAX_PROTOCOL_IDENTITY_LEN {
+                if id.len() > MAX_PROTOCOL_IDENTITY_LEN {
                     return None;
                 }
                 data.push(u8::try_from(id.len()).ok()?);
