@@ -56,11 +56,10 @@ sender on the same segment, and a standard (non-administrator) local user.
 
 ## Not covered
 
-- The signed release MSI and the `PermissionEx` SDDL on the configuration
-  directory were not built or installed here (WiX is not available on the
-  review machine); CI builds the MSI. Verify after the first install that
-  `icacls %ProgramData%\WinLLDP` shows SYSTEM and Administrators with full
-  control and Users with read only, and that Event ID 1005 does not fire.
+- The signed release MSI, and the release workflow's provenance
+  attestation, which run only on a tag. The `PermissionEx` SDDL on the
+  configuration directory was checked later with the unsigned CI MSI (lab
+  verification below).
 - If a future deployment changes the service account,
   `REQUIRED_PRIVILEGES` in `apps/winlldp-service/src/main.rs` is the single
   list to update.
@@ -90,5 +89,12 @@ Observed and left as is:
   a development run needs the file in a directory only administrators can
   write (CLAUDE.md, lab workflow).
 
-The `PermissionEx` DACL in the MSI is still unverified until a CI-built
-MSI is installed.
+After the merge, the unsigned MSI built by CI from `main` (42588c9) was
+installed over the existing installation on the same workstation:
+
+| Check | Result |
+| --- | --- |
+| `PermissionEx` DACL on `%ProgramData%\WinLLDP` | pass: protected, SYSTEM and Administrators full control, Users read and execute, inherited by `config.yaml`; the inherited Users create-files entry from `%ProgramData%` is gone, and a non-elevated process could not create a file in the directory |
+| Service after the upgrade | pass: running, unrestricted SID, `SeChangeNotifyPrivilege` only, configuration loaded, neighbor discovered, no event 1005, 1006, or 1007 |
+| Control Flow Guard in the installed executables | pass: `DllCharacteristics` 0xC160 on both |
+| Non-elevated client against the installed service | pass: `winlldp neighbors` read the neighbor |
