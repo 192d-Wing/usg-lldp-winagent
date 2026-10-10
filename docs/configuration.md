@@ -49,6 +49,8 @@ overrides the file.
 
 ### `lldp.management_addresses`
 
+If no address qualifies, the interface's MAC address is advertised as the
+management address (address family 6), as the standard recommends.
 Selection order: pinned addresses if any; otherwise IPv6 global, IPv6
 unique local, IPv4, then link-local if allowed. Temporary (RFC 8981) and
 tentative addresses are skipped unless allowed. When `max_per_interface` is

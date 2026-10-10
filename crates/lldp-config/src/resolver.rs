@@ -169,11 +169,27 @@ fn build_system(cfg: &Config, facts: &SystemFacts) -> LocalSystem {
 /// local, then IPv4, skipping temporary, link-local, and non-preferred
 /// addresses unless allowed, up to `max_per_interface`. When the limit is
 /// two or more, each family with a usable address keeps at least one slot.
+/// When no address qualifies, the interface's MAC address is advertised
+/// instead, as 802.1AB-2016 8.5.9.4 b) and 8.5.9.9 a) recommend.
 pub fn select_management_addresses(cfg: &Config, iface: &InterfaceInfo) -> Vec<ManagementAddress> {
     let m = &cfg.lldp.management_addresses;
     if !cfg.lldp.advertise.management_address || m.max_per_interface == 0 {
         return Vec::new();
     }
+    let picked = select_ip_addresses(cfg, iface);
+    if picked.is_empty()
+        && let Some(mac) = iface.mac
+    {
+        return vec![ManagementAddress::with_if_index(
+            NetworkAddress::mac(mac),
+            iface.if_index,
+        )];
+    }
+    picked
+}
+
+fn select_ip_addresses(cfg: &Config, iface: &InterfaceInfo) -> Vec<ManagementAddress> {
+    let m = &cfg.lldp.management_addresses;
     let mk =
         |addr: IpAddr| ManagementAddress::with_if_index(NetworkAddress::from(addr), iface.if_index);
     if !m.pinned.is_empty() {
@@ -303,6 +319,7 @@ impl Resolver for ConfigResolver {
             destination: lldp_codec::LldpDestination::NearestBridge,
             max_neighbors: self.config.lldp.max_neighbors_per_interface,
             max_lldpdu_len: 1500,
+            tx_stagger: std::time::Duration::ZERO,
         }
     }
 }
