@@ -68,11 +68,12 @@ jobs:
         with:
           toolchain: "1.99"
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      # No RUSTFLAGS here: the environment variable would replace the
-      # Control Flow Guard flags from .cargo/config.toml.
+      # The workflow-level RUSTFLAGS replaces the Control Flow Guard flags
+      # from .cargo/config.toml, and an empty value does too, so the flag
+      # is repeated here.
       - run: cargo build --release --locked -p winlldp-service -p winlldp-cli
         env:
-          RUSTFLAGS: ""
+          RUSTFLAGS: -D warnings -C control-flow-guard
       - name: Check exploit mitigations
         shell: pwsh
         run: |
