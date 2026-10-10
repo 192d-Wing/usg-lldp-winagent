@@ -39,7 +39,9 @@ Source `WinLLDP` in the Application log.
 3. Capture with Wireshark on the workstation using filter `eth.dst == 01:80:c2:00:00:0e`. If frames appear in Wireshark but not in WinLLDP, check Event ID 1202 (Npcap access) and 1305 (malformed frames).
 4. Hyper-V external vSwitch: LLDP multicast may not reach the host vNIC. Virtual adapters are disabled by default.
 
-**Switch shows two neighbors on the port.** The Microsoft LLDP driver (`ms_lldp`) and WinLLDP both transmitted. WinLLDP disables the binding on adapters where it transmits when `windows.manage_mslldp_binding` is true (default); check Event IDs 1400 / 1401. Verify with `Get-NetAdapterBinding -ComponentID ms_lldp`.
+**Switch entry flips between full and bare, or shows TTL 3601.** The Microsoft LLDP driver (`ms_lldp`) and WinLLDP both transmitted. On Windows 11, `ms_lldp` advertises the hostname as a locally assigned chassis ID and the adapter MAC as port ID, the same identity WinLLDP uses by default, so the switch keeps one entry that the two agents overwrite in turn (the `ms_lldp` one has TTL 3601 and no system name). WinLLDP disables the binding on adapters where it transmits when `windows.manage_mslldp_binding` is true (default); check Event IDs 1400 / 1401. Verify with `Get-NetAdapterBinding -ComponentID ms_lldp`. With a different chassis or port ID source configured, the switch shows two neighbors instead.
+
+**Switch entry reappears after WinLLDP stops.** Expected: on stop WinLLDP sends TTL 0 and restores the `ms_lldp` binding, and `ms_lldp` then advertises again.
 
 **`winlldp` says it cannot connect.** The service is not running (`Get-Service WinLLDP`), or `ipc.enabled` is false, or the caller is not in the configured read group.
 

@@ -5,11 +5,12 @@ architectural decisions already made (do not reopen them).
 
 ## State of the project
 - Phases 1 through 5 and Phase 7 packaging are implemented and pass CI.
-- Phase 6 (lab validation) has not started. The checklist is
-  docs/standards-compliance.md section 5; record results there.
-- Nothing has run on Windows yet except the CI build, smoke test, Pester
-  tests, and MSI build. Expect first-run issues in crates/lldp-windows
-  (Npcap FFI, pipe security descriptor, MsLldp binding via PowerShell).
+- Phase 6 (lab validation) is in progress. The checklist is
+  docs/standards-compliance.md section 5; record results there. Console
+  mode and the installed service have run against the Cisco switch. Still
+  to do: dock / undock, cable pull, sleep / resume, and the MSI.
+- The service SID type is unrestricted, not restricted; see the lab result
+  under decision I2 in docs/decisions.md before changing it.
 
 ## Conventions
 - Rust 1.99, edition 2024, MSRV pinned in rust-toolchain.toml.
