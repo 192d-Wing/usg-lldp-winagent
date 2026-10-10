@@ -68,8 +68,10 @@ fn ieee8021_malformed_is_unrecognized() {
         org(oui::IEEE_802_1, 2, &[0, 0]),
         org(oui::IEEE_802_1, 3, &[0, 1, 5, b'a']),
         org(oui::IEEE_802_1, 3, &[0, 1, 33, b'a']),
-        org(oui::IEEE_802_1, 4, &[0]),
         org(oui::IEEE_802_1, 4, &[2, 1]),
+        // 802.1Q-2022 D.2.2.3: enabled but not supported, and PPVID > 4094.
+        org(oui::IEEE_802_1, 2, &[0x04, 0, 5]),
+        org(oui::IEEE_802_1, 2, &[0x06, 0x0f, 0xff]),
         org(oui::IEEE_802_1, 5, &[1, 2, 3]),
         org(oui::IEEE_802_1, 7, &[1, 0, 0, 0]),
         org(oui::IEEE_802_1, 99, &[]),
@@ -89,6 +91,37 @@ fn ieee8021_malformed_is_unrecognized() {
         .is_none()
     );
     assert!(Ieee8021Tlv::ProtocolIdentity(vec![]).to_org_tlv().is_none());
+    // PPVID 4094 with both flags is the largest valid value.
+    assert_eq!(
+        Ieee8021Tlv::decode(2, &[0x06, 0x0f, 0xfe]),
+        Some(Ieee8021Tlv::PortAndProtocolVlanId {
+            supported: true,
+            enabled: true,
+            ppvid: 4094
+        })
+    );
+}
+
+#[test]
+fn power_via_mdi_type_source_priority_bits() {
+    // 802.3-2022 Table 79-7: type in bits 7:6, source in 5:4, bit 3
+    // reserved, PD 4PID in bit 2, priority in 1:0.
+    let p = PowerViaMdi::parse(&[0x00, 1, 5, 0b0101_0110, 0, 130, 0, 125]).unwrap();
+    let d = p.dll.unwrap();
+    assert_eq!((d.power_type, d.power_source, d.power_priority), (1, 1, 2));
+    assert!(d.pd_4pid);
+    assert_eq!((d.pd_requested_power, d.pse_allocated_power), (130, 125));
+    let mut out = Vec::new();
+    p.write(&mut out);
+    assert_eq!(out, [0x00, 1, 5, 0b0101_0110, 0, 130, 0, 125]);
+    // The reserved bit is ignored on receive.
+    let d = PowerViaMdi::parse(&[0x0f, 1, 5, 0b0001_1011, 0, 0, 1, 44]).unwrap();
+    assert_eq!(d.dll.unwrap().power_priority, 3);
+    assert!(!d.dll.unwrap().pd_4pid);
+    // A Type 3 or Type 4 TLV (29-octet string, 25 here) keeps its extension raw.
+    let mut long = vec![0x0f, 1, 5, 0b0001_0011, 0, 0, 1, 44];
+    long.extend_from_slice(&[0xab; 17]);
+    assert_eq!(PowerViaMdi::parse(&long).unwrap().extension, vec![0xab; 17]);
 }
 
 #[test]
@@ -121,6 +154,7 @@ fn ieee8023_decode_and_roundtrip() {
                 power_type: 0,
                 power_source: 1,
                 power_priority: 3,
+                pd_4pid: false,
                 pd_requested_power: 130,
                 pse_allocated_power: 130,
             }),
