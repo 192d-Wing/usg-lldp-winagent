@@ -11,7 +11,8 @@ use windows::Win32::NetworkManagement::IpHelper::{
     IP_ADAPTER_ADDRESSES_LH, IP_ADAPTER_UNICAST_ADDRESS_LH, MIB_IF_TABLE2,
 };
 use windows::Win32::NetworkManagement::Ndis::{
-    IfOperStatusNotPresent, MediaConnectStateConnected, NdisPhysicalMedium802_3,
+    IfOperStatusNotPresent, IfOperStatusUp, MediaConnectStateConnected, MediaConnectStateUnknown,
+    NdisPhysicalMedium802_3,
 };
 use windows::Win32::Networking::WinSock::{
     AF_INET, AF_INET6, AF_UNSPEC, IpDadStatePreferred, IpSuffixOriginRandom, SOCKADDR_IN,
@@ -54,8 +55,13 @@ pub fn enumerate() -> Result<Vec<InterfaceInfo>, EnumerateError> {
             let flags = row.InterfaceAndOperStatusFlags._bitfield;
             // Filter modules layered over an adapter (WFP, QoS, Npcap) get
             // rows of their own, and an unplugged USB or dock NIC stays
-            // listed as not present. Neither is an interface we can open.
-            if flags & 0x02 != 0 || row.OperStatus == IfOperStatusNotPresent {
+            // listed: first as down with an unknown media state (a present
+            // adapter without link reports "disconnected"), later as not
+            // present. Neither is an interface we can open.
+            let absent = row.OperStatus == IfOperStatusNotPresent
+                || (row.OperStatus != IfOperStatusUp
+                    && row.MediaConnectState == MediaConnectStateUnknown);
+            if flags & 0x02 != 0 || absent {
                 continue;
             }
             let hardware = flags & 0x01 != 0;

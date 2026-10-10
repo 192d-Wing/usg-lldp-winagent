@@ -168,8 +168,12 @@ impl Differ {
     }
 }
 
+/// How often the adapter list is re-read without a notification.
+const RESCAN_INTERVAL: Duration = Duration::from_secs(10);
+
 /// Runs the monitor: emits an initial `Added` for every adapter, then
-/// diffs after each system notification, debounced by `settle`.
+/// diffs after each system notification, debounced by `settle`, and at
+/// least every [`RESCAN_INTERVAL`].
 pub async fn run(
     sub: Subscription,
     settle: Duration,
@@ -182,10 +186,17 @@ pub async fn run(
         }
     }
     loop {
-        sub.changed().await;
-        tokio::time::sleep(settle).await;
-        // Drain any notifications that arrived during the settle window.
-        while let Ok(()) = tokio::time::timeout(Duration::ZERO, sub.changed()).await {}
+        // Not every change raises a notification: an unplugged USB or dock
+        // NIC reports link down, then becomes "not present" silently once
+        // its IP interface is gone. Rescan periodically as well.
+        if tokio::time::timeout(RESCAN_INTERVAL, sub.changed())
+            .await
+            .is_ok()
+        {
+            tokio::time::sleep(settle).await;
+            // Drain any notifications that arrived during the settle window.
+            while let Ok(()) = tokio::time::timeout(Duration::ZERO, sub.changed()).await {}
+        }
         match enumerate() {
             Ok(fresh) => {
                 for e in differ.update(fresh) {
