@@ -244,6 +244,23 @@ pub fn uninstall() -> Result<(), String> {
     service
         .delete()
         .map_err(|e| format!("delete service: {e}"))?;
+    restore_bindings()?;
+    lldp_windows::eventlog::unregister_source().map_err(|e| format!("event source: {e}"))?;
     println!("{SERVICE_NAME} uninstalled");
+    Ok(())
+}
+
+/// Restores Microsoft LLDP driver bindings the service left disabled and
+/// removes its registry state. Run at uninstall; never fails, so it cannot
+/// block one.
+#[allow(clippy::unnecessary_wraps)] // same shape as the other subcommands
+pub fn restore_bindings() -> Result<(), String> {
+    for (guid, e) in lldp_windows::mslldp::restore_all() {
+        eprintln!(
+            "warning: {guid}: {e}; its record is kept under HKLM\\{}",
+            lldp_windows::mslldp::STATE_KEY
+        );
+    }
+    println!("{SERVICE_NAME} bindings restored");
     Ok(())
 }

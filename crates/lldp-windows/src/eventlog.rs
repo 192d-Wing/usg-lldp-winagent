@@ -8,14 +8,14 @@
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, HANDLE};
 use windows::Win32::System::EventLog::{
     DeregisterEventSource, EVENTLOG_ERROR_TYPE, EVENTLOG_INFORMATION_TYPE, EVENTLOG_WARNING_TYPE,
     REPORT_EVENT_TYPE, RegisterEventSourceW, ReportEventW,
 };
 use windows::Win32::System::Registry::{
     HKEY, HKEY_LOCAL_MACHINE, KEY_WRITE, REG_DWORD, REG_EXPAND_SZ, REG_OPTION_NON_VOLATILE,
-    RegCloseKey, RegCreateKeyExW, RegSetValueExW,
+    RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegSetValueExW,
 };
 use windows::core::PCWSTR;
 
@@ -243,6 +243,22 @@ pub fn register_source() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Removes the registration made by [`register_source`]. A source that is
+/// not registered is not an error.
+#[allow(unsafe_code)]
+pub fn unregister_source() -> Result<(), String> {
+    let key = to_wide(&format!(
+        "SYSTEM\\CurrentControlSet\\Services\\EventLog\\Application\\{SOURCE}"
+    ));
+    // SAFETY: `key` is NUL-terminated.
+    let rc = unsafe { RegDeleteKeyW(HKEY_LOCAL_MACHINE, PCWSTR(key.as_ptr())) };
+    if rc.is_ok() || rc == ERROR_FILE_NOT_FOUND {
+        Ok(())
+    } else {
+        Err(format!("RegDeleteKeyW returned {}", rc.0))
+    }
 }
 
 #[cfg(test)]

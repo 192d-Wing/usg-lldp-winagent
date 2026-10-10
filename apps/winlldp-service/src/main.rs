@@ -1,8 +1,9 @@
 //! WinLLDP service executable.
 //!
 //! Runs as a Windows Service by default. `--console` runs in the
-//! foreground for development, and `install`, `uninstall`, and `harden`
-//! manage the SCM registration (the MSI performs these in production).
+//! foreground for development, and `install`, `uninstall`, `harden`, and
+//! `restore-bindings` manage the SCM registration and uninstall cleanup
+//! (the MSI performs these in production).
 
 #![forbid(unsafe_code)]
 
@@ -52,6 +53,9 @@ enum Command {
     Uninstall,
     /// Apply the service SID and minimal privileges.
     Harden,
+    /// Restore Microsoft LLDP driver bindings and remove registry state
+    /// (run at uninstall).
+    RestoreBindings,
     /// Validate the configuration file and exit.
     Validate,
 }
@@ -67,6 +71,8 @@ fn main() {
         Some(Command::Uninstall) => report(service::uninstall()),
         #[cfg(windows)]
         Some(Command::Harden) => report(service::harden()),
+        #[cfg(windows)]
+        Some(Command::RestoreBindings) => report(service::restore_bindings()),
         #[cfg(windows)]
         None if cli.console => report(app::run_console(config_path)),
         #[cfg(windows)]
