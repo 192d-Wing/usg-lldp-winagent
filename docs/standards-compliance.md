@@ -1,9 +1,10 @@
 # Standards Compliance
 
 Status: the IEEE 802.1AB-2016 requirements were checked against the
-published text on 2026-10-10 (section 4.1). The organizationally specific
-TLVs of section 2 come from other standards and are still **verify**: check
-them against the published text before relying on them.
+published text on 2026-10-10 (section 4.1), and the IEEE 802.1 and 802.3
+organizationally specific TLV decoders against 802.1Q-2022 Annex D and
+802.3-2022 Clause 79 (section 4.2). Still **verify**: the Link Aggregation
+TLV of IEEE 802.1AX and the LLDP-MED TLVs of TIA-1057.
 IEEE 802.1AB-2016 is available at no cost through the IEEE GET Program
 (IEEE Xplore, free account required).
 
@@ -29,9 +30,9 @@ Sources: IEEE 802.1 project pages for
 | 00-12-0F | IEEE 802.3 | IEEE 802.3 Clause 79 | MAC/PHY Configuration/Status (subtype 1), Power via MDI (2), Link Aggregation (3, **deprecated** in favor of the 802.1 TLV), Maximum Frame Size (4), EEE (5), Additional Ethernet Capabilities (7). Decode all; transmit MAC/PHY and Max Frame Size as optional. |
 | 00-12-BB | TIA | ANSI/TIA-1057 (LLDP-MED) | Capabilities, Network Policy, Location, Extended Power, Inventory. Decode. Transmit only if explicitly enabled; a Windows workstation is a "Class I generic endpoint" at most. |
 
-Subtype numbers above come from the IEEE 802.1 assigned-numbers document and
-802.3 Clause 79 baseline drafts; **verify** against the current published
-802.1Q-2022 and 802.3-2022 text before encoding.
+The agent transmits none of these TLVs; they are decoded for display only,
+so an error here can mislabel a field but cannot affect the protocol.
+Section 4.2 records the check of the first two rows.
 
 ## 3. Applicable IETF RFCs
 
@@ -215,8 +216,45 @@ Not implemented:
 - The SNMP MIB (clause 11). Storage and retrieval equivalent to 10.1 is
   provided over the IPC pipe (5.3 n).
 
-Still unverified: the 802.1Q Annex D, 802.3 Clause 79, and TIA-1057 TLVs
-of section 2. 802.1AB-2016 does not contain them.
+### 4.2 Organizationally specific TLV decoders
+
+Checked 2026-10-10 against IEEE Std 802.1Q-2022 Annex D and IEEE Std
+802.3-2022 Clause 79. These TLVs are only decoded, never transmitted.
+
+Confirmed:
+
+- IEEE 802.1 (OUI 00-80-C2), Table D-1: Port VLAN ID (1), Port And
+  Protocol VLAN ID (2, flag bits 1 and 2), VLAN Name (3, name 0 to 32
+  octets), Protocol Identity (4), VID Usage Digest (5), Management VID
+  (6), Link Aggregation (7).
+- IEEE 802.3 (OUI 00-12-0F), Table 79-1: MAC/PHY Configuration/Status
+  (1), Power Via MDI (2: support bits, power pair, power class, power
+  type and source, the 0.1 W power values), Link Aggregation (3,
+  deprecated), Maximum Frame Size (4), EEE (5).
+
+Corrected as a result:
+
+- Power Via MDI: the power priority is bits 1:0 of the type/source/
+  priority octet, not the low four bits. Bit 2 is PD 4PID (802.3bt), now
+  decoded as `pd_4pid`; bit 3 is reserved.
+- Port And Protocol VLAN ID: a TLV that is enabled but not supported, or
+  whose PPVID is above 4094, is in error (D.2.2.3) and is now shown raw
+  instead of decoded.
+- Protocol Identity: a zero-length identity was rejected; the standard
+  sets no minimum.
+
+Not decoded (shown raw): IEEE 802.1 subtypes 8 and above (congestion
+notification, DCBX, EVB) and IEEE 802.3 subtypes 6 to 8 (EEE fast wake,
+Additional Ethernet Capabilities, Power via MDI Measurements).
+
+Still unverified:
+
+- The IEEE 802.1 Link Aggregation TLV (subtype 7). Annex D only refers to
+  IEEE Std 802.1AX for it. It is decoded with the layout of the deprecated
+  802.3 TLV (79.3.3), which was checked.
+- The LLDP-MED TLVs (TIA-1057).
+
+ROADMAP.MD describes what is needed to close each.
 
 ## 5. Lab validation
 

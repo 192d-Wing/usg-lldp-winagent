@@ -1,6 +1,7 @@
-//! IEEE 802.3 organizationally specific TLVs (IEEE 802.3 Clause 79,
-//! OUI 00-12-0F). Field layouts follow Clause 79 as published in
-//! 802.3-2022 and must be verified against that text.
+//! IEEE 802.3 organizationally specific TLVs (OUI 00-12-0F). Subtypes and
+//! field layouts were checked against IEEE Std 802.3-2022 Clause 79.
+//! Subtypes 6 (EEE fast wake), 7 (Additional Ethernet Capabilities), and
+//! 8 (Power via MDI Measurements) are not decoded and are shown raw.
 
 use super::ieee8021::LinkAggregation;
 use super::{OrgTlv, oui, u16_at};
@@ -24,7 +25,7 @@ pub enum Ieee8023Tlv {
         transmit_tw: u16,
         /// Receive Tw_sys_rx.
         receive_tw: u16,
-        /// Fallback Tw_sys.
+        /// Fallback receive Tw_sys.
         fallback_tw: u16,
         /// Echo transmit Tw.
         echo_transmit_tw: u16,
@@ -69,9 +70,10 @@ impl MacPhyConfigStatus {
     }
 }
 
-/// Power via MDI fields (79.3.2). The first three octets are always
-/// present; the DLL classification fields were added by 802.3at and later
-/// amendments appended more, which are kept raw in `extension`.
+/// Power via MDI fields (79.3.2). The three basic fields are always
+/// present. The DLL classification extension (802.3at) adds five octets,
+/// and the Type 3 and Type 4 extension (802.3bt) seventeen more, which are
+/// kept raw in `extension`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 #[allow(clippy::struct_excessive_bools)] // mirrors the wire bit field
 pub struct PowerViaMdi {
@@ -100,8 +102,10 @@ pub struct PowerDll {
     pub power_type: u8,
     /// Power source (meaning depends on type).
     pub power_source: u8,
-    /// Power priority: 1 = critical, 2 = high, 3 = low.
+    /// Power priority: 0 = unknown, 1 = critical, 2 = high, 3 = low.
     pub power_priority: u8,
+    /// PD 4PID: the PD supports powering of both Modes simultaneously.
+    pub pd_4pid: bool,
     /// PD requested power in units of 0.1 W.
     pub pd_requested_power: u16,
     /// PSE allocated power in units of 0.1 W.
@@ -120,7 +124,8 @@ impl PowerViaMdi {
             let d = PowerDll {
                 power_type: tsp >> 6,
                 power_source: (tsp >> 4) & 0x03,
-                power_priority: tsp & 0x0F,
+                power_priority: tsp & 0x03,
+                pd_4pid: tsp & 0x04 != 0,
                 pd_requested_power: u16_at(rest, 1)?,
                 pse_allocated_power: u16_at(rest, 3)?,
             };
@@ -154,7 +159,10 @@ impl PowerViaMdi {
         out.push(self.power_class);
         if let Some(d) = self.dll {
             out.push(
-                (d.power_type << 6) | ((d.power_source & 0x03) << 4) | (d.power_priority & 0x0F),
+                (d.power_type << 6)
+                    | ((d.power_source & 0x03) << 4)
+                    | (u8::from(d.pd_4pid) << 2)
+                    | (d.power_priority & 0x03),
             );
             out.extend_from_slice(&d.pd_requested_power.to_be_bytes());
             out.extend_from_slice(&d.pse_allocated_power.to_be_bytes());

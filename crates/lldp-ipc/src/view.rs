@@ -499,7 +499,7 @@ fn ieee8023_json(t: &Ieee8023Tlv) -> Value {
             "pse_power_pair": p.pse_power_pair,
             "power_class": p.power_class,
             "dll": p.dll.map(|d| json!({
-                "power_type": d.power_type, "power_source": d.power_source, "power_priority": d.power_priority,
+                "power_type": d.power_type, "power_source": d.power_source, "power_priority": d.power_priority, "pd_4pid": d.pd_4pid,
                 "pd_requested_power_dw": d.pd_requested_power, "pse_allocated_power_dw": d.pse_allocated_power,
             })),
             "extension_hex": hex(&p.extension),

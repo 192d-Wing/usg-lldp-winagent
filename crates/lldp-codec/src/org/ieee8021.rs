@@ -1,13 +1,15 @@
-//! IEEE 802.1 organizationally specific TLVs (IEEE 802.1Q Annex D,
-//! OUI 00-80-C2). Subtype numbers are taken from the IEEE 802.1
-//! assigned-numbers list and must be verified against the current
-//! 802.1Q text.
+//! IEEE 802.1 organizationally specific TLVs (OUI 00-80-C2). Subtypes 1
+//! to 6 were checked against IEEE Std 802.1Q-2022 Annex D. The Link
+//! Aggregation TLV (subtype 7) is defined in IEEE Std 802.1AX and has not
+//! been checked against it (`verify`); its layout here is that of the
+//! deprecated 802.3 TLV (802.3-2022 79.3.3). Subtypes 8 and above
+//! (congestion notification, DCBX, EVB) are not decoded and are shown raw.
 
 use super::{OrgTlv, oui, u16_at, u32_at};
 
 /// Longest VLAN name (D.2.3, 0 to 32 octets).
 pub const MAX_VLAN_NAME_LEN: usize = 32;
-/// Longest protocol identity (D.2.4, 1 to 255 octets).
+/// Longest protocol identity (D.2.4, 0 to 255 octets).
 pub const MAX_PROTOCOL_IDENTITY_LEN: usize = 255;
 
 /// Decoded IEEE 802.1 TLV.
@@ -87,10 +89,18 @@ impl Ieee8021Tlv {
                     return None;
                 }
                 let flags = *data.first()?;
+                let supported = flags & 0x02 != 0;
+                let enabled = flags & 0x04 != 0;
+                let ppvid = u16_at(data, 1)?;
+                // D.2.2.3 b) and c): enabled without supported, or a PPVID
+                // above 4094, is an error and the TLV is discarded.
+                if (enabled && !supported) || ppvid > 4094 {
+                    return None;
+                }
                 Self::PortAndProtocolVlanId {
-                    supported: flags & 0x02 != 0,
-                    enabled: flags & 0x04 != 0,
-                    ppvid: u16_at(data, 1)?,
+                    supported,
+                    enabled,
+                    ppvid,
                 }
             }
             3 => {
@@ -108,7 +118,7 @@ impl Ieee8021Tlv {
             4 => {
                 let len = usize::from(*data.first()?);
                 let id = data.get(1..)?;
-                if len == 0 || id.len() != len {
+                if id.len() != len {
                     return None;
                 }
                 Self::ProtocolIdentity(id.to_vec())
@@ -139,8 +149,7 @@ impl Ieee8021Tlv {
     }
 
     /// Encodes to a raw organizational TLV. Returns `None` if a field is
-    /// out of range (VLAN name over 32 octets, empty or overlong protocol
-    /// identity).
+    /// out of range (VLAN name over 32 octets, overlong protocol identity).
     pub fn to_org_tlv(&self) -> Option<OrgTlv> {
         let mut data = Vec::with_capacity(8);
         match self {
@@ -164,7 +173,7 @@ impl Ieee8021Tlv {
                 data.extend_from_slice(name);
             }
             Self::ProtocolIdentity(id) => {
-                if id.is_empty() || id.len() > MAX_PROTOCOL_IDENTITY_LEN {
+                if id.len() > MAX_PROTOCOL_IDENTITY_LEN {
                     return None;
                 }
                 data.push(u8::try_from(id.len()).ok()?);
