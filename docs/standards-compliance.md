@@ -75,7 +75,7 @@ Clause numbers below reflect 802.1AB-2016 as best known; every row is
 | IEEE 802.1AB-2016 | 9.2 | Receive validation and discard rules; too-many-neighbors handling | lldp-codec, lldp-core `NeighborTable` | `port::too_many_neighbors_drops_newest`, `malformed_frames_are_counted_not_fatal`, `ttl_zero_removes_immediately` | Implemented, unit tested |
 | IEEE 802.1AB-2016 | 10 / 11 | Statistics counters (`lldpStatsRxPortFramesTotal`, `...FramesDiscardedTotal`, `...FramesErrors`, `...TLVsDiscardedTotal`, `...TLVsUnrecognizedTotal`, `...AgeoutsTotal`, `lldpStatsTxPortFramesTotal`, etc.) | lldp-core `PortStats` | `port::*` assertions on `stats()` | Implemented, unit tested |
 
-## 5. Lab validation (in progress)
+## 5. Lab validation
 
 Started 2026-10-09 on a Windows 11 Enterprise 25H2 (build 26200) x64
 workstation, Intel I219-LM, Npcap 1.88, attached to a Cisco C9200CX
@@ -94,7 +94,7 @@ parallel dumpcap capture.
 | Dock / undock, cable pull, sleep / resume handled without restart | pass 2026-10-09 on the installed service, same process throughout. Cable pull: neighbor removed on link down (event 1303), 4 fast frames on link up, switch rediscovered 4 s later. USB NIC: managed and `ms_lldp` unbound within 4 s of plugging in, and the switch listed both adapters; after the fixes below the unplug is detected within the 10 s rescan and the port stopped. The switch kept the USB entry for a while after the unplug: no TTL 0 can be sent from removed hardware, so it clears on link down or TTL. Sleep: the machine uses Modern Standby; after the fix a fast period starts at each wake (seen in the capture), and the switch entry never went more than about 55 s without a refresh during a 4 minute sleep |
 | Config reload without restart | pass 2026-10-09 on the installed service: `winlldp config reload` applied a `system_name_override` in the same process and sent an updated LLDPDU at once (seen in the capture); an invalid file was rejected with event 1003 and the previous configuration kept; restoring the file and reloading returned to the defaults |
 | Service token holds only SeChangeNotifyPrivilege; restricted SID | pass for the privilege, changed for the SID type. Token of the running service: `NT AUTHORITY\SYSTEM`, one privilege (`SeChangeNotifyPrivilege`), `NT SERVICE\WinLLDP` present, no restricting SIDs. The restricted SID type does not work with Npcap Admin-only mode or the pipe (decision I2 lab result), so the service uses the unrestricted type |
-| Silent MSI install, upgrade, uninstall with logs | pending |
+| Silent MSI install, upgrade, uninstall with logs | pass 2026-10-10 with unsigned CI builds (x64), `msiexec /qn /norestart /l*v`, all exit code 0. Install (1 s): binaries, PowerShell module, default `config.yaml`, service (LocalSystem, unrestricted service SID, `SeChangeNotifyPrivilege`, restart after 10 s then 60 s), event source and PATH entry present; service running and the switch discovered. Module cmdlets work in PowerShell 7.6 and Windows PowerShell 5.1. Major upgrade between two builds (6 s): new product code, edited `config.yaml` kept, TTL 0 at the service stop, new service running. Uninstall (5 s): TTL 0 sent, product, binaries, module, service, event source and PATH entry removed, `ms_lldp` bound again, `config.yaml` left in place by design. The signed release MSI and ARM64 are not covered |
 
 Findings from the first run, fixed:
 
@@ -145,6 +145,21 @@ Findings from the first run, fixed:
   twice in one millisecond. It now keeps the fast interval from the last
   transmission.
 
+Findings from the MSI run, fixed:
+
+- The PowerShell module failed against the real service with `bad_request:
+  missing field params` for `Get-WinLldpNeighbor`,
+  `Get-WinLldpLocalAdvertisement` and `Get-WinLldpStatistic` without an
+  interface; the Pester tests mock the pipe. It now sends `"params":{}`.
+- A major upgrade deleted an existing `config.yaml` and left the service
+  stopped (event 1003): the file was kept out of the new install, then
+  removed with the old product. The component is now permanent.
+- The MSI's `util:ServiceConfig` replaced the 10 s / 60 s restart delays
+  set by `harden` with 10 s / 10 s. Removed.
+- With Restart Manager disabled in the package, a major upgrade took 63 s
+  (about 30 s in `InstallValidate` per product) against 1 s for a fresh
+  install. With it enabled the upgrade takes 6 s.
+
 Findings still open:
 
 - `backend.open()` blocks under the agent lock. Non-elevated with Npcap in
@@ -158,6 +173,15 @@ Findings still open:
   until its remaining TTL runs out after wake.
 - Not yet re-run live after the last tidy-ups: removal without event 1203,
   the shorter event 1401 text, and the duplicate-frame spacing (unit tested).
+- The service exits when `config.yaml` is missing or invalid at start
+  rather than running on defaults; the restart actions then retry twice.
+- Uninstall leaves `HKLM\SOFTWARE\WinLLDP` behind, including the recorded
+  `ms_lldp` state of an adapter that was absent at the time, whose binding
+  therefore stays disabled.
+- `winlldp-service.exe uninstall` (the non-MSI path) does not remove the
+  event source.
+- An upgrade from a build older than the permanent-config fix still loses
+  `config.yaml`. No such build has been released.
 
 ## 6. Explicitly out of scope
 

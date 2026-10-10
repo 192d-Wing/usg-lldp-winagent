@@ -5,10 +5,11 @@ architectural decisions already made (do not reopen them).
 
 ## State of the project
 - Phases 1 through 5 and Phase 7 packaging are implemented and pass CI.
-- Phase 6 (lab validation) is in progress. The checklist is
-  docs/standards-compliance.md section 5; record results there. Console
-  mode, the installed service, cable pull, USB NIC, and Modern Standby
-  have run against the Cisco switch. Still to do: the MSI.
+- Phase 6 (lab validation): every row of the checklist in
+  docs/standards-compliance.md section 5 has passed on one Windows 11 x64
+  workstation against a Cisco C9200CX. That section also lists the open
+  findings. Not covered: the signed release MSI, ARM64, Server, Juniper.
+- The compliance matrix clause numbers are still marked `verify`.
 - The service SID type is unrestricted, not restricted; see the lab result
   under decision I2 in docs/decisions.md before changing it.
 
