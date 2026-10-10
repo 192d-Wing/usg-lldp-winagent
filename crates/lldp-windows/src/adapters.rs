@@ -11,7 +11,7 @@ use windows::Win32::NetworkManagement::IpHelper::{
     IP_ADAPTER_ADDRESSES_LH, IP_ADAPTER_UNICAST_ADDRESS_LH, MIB_IF_TABLE2,
 };
 use windows::Win32::NetworkManagement::Ndis::{
-    MediaConnectStateConnected, NdisPhysicalMedium802_3,
+    IfOperStatusNotPresent, MediaConnectStateConnected, NdisPhysicalMedium802_3,
 };
 use windows::Win32::Networking::WinSock::{
     AF_INET, AF_INET6, AF_UNSPEC, IpDadStatePreferred, IpSuffixOriginRandom, SOCKADDR_IN,
@@ -32,8 +32,9 @@ impl std::fmt::Display for EnumerateError {
 
 impl std::error::Error for EnumerateError {}
 
-/// Enumerates every interface Windows knows about, including loopback and
-/// tunnels; the caller filters by `kind`.
+/// Enumerates every present interface, including loopback and tunnels;
+/// the caller filters by `kind`. Filter-module rows and adapters that are
+/// not present are left out.
 #[allow(unsafe_code)]
 pub fn enumerate() -> Result<Vec<InterfaceInfo>, EnumerateError> {
     let mut adapters = Vec::new();
@@ -51,6 +52,12 @@ pub fn enumerate() -> Result<Vec<InterfaceInfo>, EnumerateError> {
         let rows = std::slice::from_raw_parts((*table).Table.as_ptr(), count);
         for row in rows {
             let flags = row.InterfaceAndOperStatusFlags._bitfield;
+            // Filter modules layered over an adapter (WFP, QoS, Npcap) get
+            // rows of their own, and an unplugged USB or dock NIC stays
+            // listed as not present. Neither is an interface we can open.
+            if flags & 0x02 != 0 || row.OperStatus == IfOperStatusNotPresent {
+                continue;
+            }
             let hardware = flags & 0x01 != 0;
             let connector = flags & 0x04 != 0;
             let kind = if row.Type == IF_TYPE_IEEE80211 {
