@@ -254,6 +254,8 @@ Still unverified:
   802.3 TLV (79.3.3), which was checked.
 - The LLDP-MED TLVs (TIA-1057).
 
+ROADMAP.MD describes what is needed to close each.
+
 ## 5. Lab validation
 
 Started 2026-10-09 on a Windows 11 Enterprise 25H2 (build 26200) x64
