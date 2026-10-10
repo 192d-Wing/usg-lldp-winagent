@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Start with `winlldp diagnostics`. It checks the configuration file, Npcap,
+Start with `winlldp diagnostics` (exit code 1 if any check fails). It checks the configuration file, Npcap,
 service reachability, the packet backend, managed interfaces, neighbor
 count, and per-interface error counters.
 
@@ -12,7 +12,7 @@ Source `WinLLDP` in the Application log.
 | --- | --- | --- |
 | 1000 / 1001 | Info | Service started / stopped |
 | 1002 | Info | Configuration loaded |
-| 1003 | Error | Configuration invalid; the message lists each bad value with its path |
+| 1003 | Error | Configuration missing or invalid; the message lists each bad value with its path. At start the service stays up with every interface disabled until the file is corrected and reloaded; on a reload the previous configuration is kept |
 | 1004 | Info | Registry policy overrides applied |
 | 1100 | Error | Npcap missing or older than 1.50; LLDP is disabled until fixed |
 | 1101 | Info | Npcap version in use |
