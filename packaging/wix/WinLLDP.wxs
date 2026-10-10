@@ -87,13 +87,9 @@
                         ErrorControl="normal"
                         Account="LocalSystem"
                         Arguments="--config &quot;[ConfigDir]config.yaml&quot;"
-                        Vital="yes">
-          <util:ServiceConfig FirstFailureActionType="restart"
-                              SecondFailureActionType="restart"
-                              ThirdFailureActionType="none"
-                              RestartServiceDelayInSeconds="10"
-                              ResetPeriodInDays="1" />
-        </ServiceInstall>
+                        Vital="yes" />
+        <!-- Failure actions (restart after 10 s, then 60 s) are set by the
+             HardenService action, not here. -->
         <ServiceControl Id="WinLldpServiceControl" Name="WinLLDP" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
       </Component>
       <Component Id="CliExe" Guid="9d7c5f3b-2e4a-4b6c-9dae-1f2a3b4c5d6e" Bitness="always64">
@@ -106,8 +102,12 @@
     </ComponentGroup>
 
     <ComponentGroup Id="Configuration" Directory="ConfigDir">
-      <!-- NeverOverwrite keeps an administrator's edited file across upgrades -->
-      <Component Id="ConfigFile" Guid="bf9e7b5d-4a6c-4d8e-bfca-3b4c5d6e7f80" NeverOverwrite="yes" Bitness="always64">
+      <!-- NeverOverwrite keeps an administrator's edited file from being
+           replaced. Permanent keeps it from being deleted: a major upgrade
+           removes the old product after deciding not to reinstall the
+           file, which would otherwise leave no configuration at all. The
+           file also stays behind on uninstall. -->
+      <Component Id="ConfigFile" Guid="bf9e7b5d-4a6c-4d8e-bfca-3b4c5d6e7f80" NeverOverwrite="yes" Permanent="yes" Bitness="always64">
         <File Id="ConfigFile" Source="$(var.RepoRoot)\examples\config.yaml" Name="config.yaml" KeyPath="yes" />
       </Component>
     </ComponentGroup>
