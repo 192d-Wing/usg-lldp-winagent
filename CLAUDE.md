@@ -11,9 +11,17 @@ architectural decisions already made (do not reopen them).
   findings. Not covered: the signed release MSI, ARM64, Server, Juniper.
 - The 802.1AB requirements were checked against IEEE Std 802.1AB-2016
   (docs/standards-compliance.md section 4.1, which also lists the deliberate
-  differences). The 802.1Q, 802.3, and TIA-1057 TLVs are still `verify`.
+  differences), and the 802.1 and 802.3 TLV decoders against 802.1Q-2022
+  Annex D and 802.3 Clause 79 (section 4.2). Still `verify`: the 802.1AX
+  Link Aggregation TLV and LLDP-MED (TIA-1057); see ROADMAP.MD.
 - The service SID type is unrestricted, not restricted; see the lab result
   under decision I2 in docs/decisions.md before changing it.
+- Security audit 2026-10-10 (docs/security-audit-2026-10-10.md): the
+  service now refuses to run under the SCM with privileges beyond
+  REQUIRED_PRIVILEGES, refuses a config file non-administrators can
+  modify, and the pipe DACL denies FILE_CREATE_PIPE_INSTANCE to the read
+  group. docs/security.md describes only controls that exist in code;
+  keep it that way.
 
 ## Conventions
 - Rust 1.99, edition 2024, MSRV pinned in rust-toolchain.toml.
@@ -33,7 +41,10 @@ architectural decisions already made (do not reopen them).
 1. Install Npcap 1.50+, Rust 1.99 with the MSVC toolchain, and Wireshark.
 2. cargo build --release -p winlldp-service -p winlldp-cli
 3. Foreground run (elevated): target\release\winlldp-service.exe --console
-   --config examples\config.yaml
+   --config C:\ProgramData\WinLLDP\config.yaml (copy examples\config.yaml
+   there from an elevated prompt first). A file in the checkout is owned by
+   the user, so the service refuses it with event 1005 and manages nothing.
+   Event 1007 about the executable under target\ is expected in this mode.
 4. In another elevated prompt: target\release\winlldp.exe diagnostics,
    interfaces, neighbors --detail, local, statistics.
 5. Service install for real: winlldp-service.exe install --config
