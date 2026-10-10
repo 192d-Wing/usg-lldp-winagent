@@ -160,7 +160,9 @@ Findings from the MSI run, fixed:
   (about 30 s in `InstallValidate` per product) against 1 s for a fresh
   install. With it enabled the upgrade takes 6 s.
 
-Findings fixed after the checklist was complete (2026-10-10, dev build):
+Findings fixed after the checklist was complete (2026-10-10; dev build,
+then the CI MSI: the uninstall cleanup ran on uninstall and was skipped on
+upgrade and install):
 
 - `winlldp diagnostics` exited 0 when a check reported FAIL. It now exits 1.
 - The service exited when `config.yaml` was missing or invalid at start.
