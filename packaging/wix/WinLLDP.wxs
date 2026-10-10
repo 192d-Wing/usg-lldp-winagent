@@ -108,6 +108,18 @@
     </ComponentGroup>
 
     <ComponentGroup Id="Configuration" Directory="ConfigDir">
+      <!-- The configuration directory gets an explicit, protected DACL
+           (MsiLockPermissionsEx, SDDL): SYSTEM and Administrators full
+           control, Users read and execute, inherited by the files in it.
+           The default %ProgramData% ACL lets Users create files there; a
+           user who can write config.yaml chooses what the workstation
+           advertises, and the service refuses to load a file that
+           non-administrators can modify (Event ID 1005). -->
+      <Component Id="ConfigDirAcl" Guid="0a7c3e51-9b2d-4f6e-8a1c-5d4e3f2a1b09" Permanent="yes" Bitness="always64">
+        <CreateFolder>
+          <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)" />
+        </CreateFolder>
+      </Component>
       <!-- NeverOverwrite keeps an administrator's edited file from being
            replaced. Permanent keeps it from being deleted: a major upgrade
            removes the old product after deciding not to reinstall the

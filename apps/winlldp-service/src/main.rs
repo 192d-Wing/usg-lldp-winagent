@@ -24,6 +24,10 @@ mod sink;
 pub const SERVICE_NAME: &str = "WinLLDP";
 /// Display name.
 pub const DISPLAY_NAME: &str = "WinLLDP Link Layer Discovery Protocol Agent";
+/// The only privileges the service token may hold. `harden` registers this
+/// list as the service's `RequiredPrivileges`, and the service checks its
+/// token against it at start.
+pub const REQUIRED_PRIVILEGES: &[&str] = &["SeChangeNotifyPrivilege"];
 
 /// Default configuration path.
 pub fn default_config_path() -> PathBuf {

@@ -47,6 +47,13 @@ pub mod id {
     pub const CONFIG_ERROR: u32 = 1003;
     /// Registry policy applied.
     pub const POLICY_APPLIED: u32 = 1004;
+    /// Configuration file is writable by a non-administrator and was not
+    /// loaded.
+    pub const CONFIG_INSECURE: u32 = 1005;
+    /// The process token holds privileges the service does not declare.
+    pub const PRIVILEGES_UNEXPECTED: u32 = 1006;
+    /// The service executable is writable by a non-administrator.
+    pub const BINARY_INSECURE: u32 = 1007;
     /// Npcap missing or too old.
     pub const NPCAP_UNAVAILABLE: u32 = 1100;
     /// Npcap version in use.

@@ -176,7 +176,33 @@ fn unix_now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// Prefix of the error for a configuration file that non-administrators
+/// can modify; the sink maps it to its own event ID.
+pub const INSECURE_CONFIG_PREFIX: &str = "configuration file is not trusted";
+
+/// Fails when `path` can be modified by anyone other than SYSTEM,
+/// Administrators, or TrustedInstaller. A user who can edit the file
+/// chooses what the workstation advertises, so such a file is not loaded.
+fn require_admin_only_writable(path: &std::path::Path) -> Result<(), String> {
+    let writers = lldp_windows::secinfo::non_admin_writers(path).map_err(|e| {
+        format!(
+            "{INSECURE_CONFIG_PREFIX}: cannot read the ACL of {}: {e}",
+            path.display()
+        )
+    })?;
+    if writers.is_empty() {
+        return Ok(());
+    }
+    let list: Vec<String> = writers.iter().map(ToString::to_string).collect();
+    Err(format!(
+        "{INSECURE_CONFIG_PREFIX}: {} can be modified by {}; grant write access to SYSTEM and Administrators only",
+        path.display(),
+        list.join(", ")
+    ))
+}
+
 fn load_config(path: &std::path::Path) -> Result<(Config, bool), String> {
+    require_admin_only_writable(path)?;
     let text = std::fs::read_to_string(path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let mut cfg = Config::from_yaml(&text).map_err(|e| e.to_string())?;
@@ -278,6 +304,28 @@ async fn run(
     let (sink_tx, sink_rx) = mpsc::unbounded_channel::<SinkEvent>();
     let (agent_ev_tx, agent_ev_rx) = broadcast::channel::<AgentEvent>(1024);
 
+    // Under the SCM the token must hold exactly the declared privileges.
+    // Anything more means the service was registered without `harden`, or
+    // its registration was changed; refuse to run rather than run with
+    // more than LocalSystem needs here. In the console an elevated
+    // administrator's token naturally has more, so only report it.
+    let extra_privileges = lldp_windows::secinfo::unexpected_privileges(crate::REQUIRED_PRIVILEGES)
+        .unwrap_or_else(|e| vec![format!("cannot inspect the token: {e}")]);
+    if !extra_privileges.is_empty() && !console {
+        let msg = extra_privileges.join(", ");
+        let sink = Sink::new(console, 60, sink_rx, agent_ev_rx);
+        let _ = sink_tx.send(SinkEvent::PrivilegesUnexpected(msg.clone()));
+        drop(sink_tx);
+        sink.run().await;
+        return Err(format!("unexpected privileges in the service token: {msg}"));
+    }
+    if !extra_privileges.is_empty() {
+        eprintln!(
+            "note: running in the console with privileges the service would refuse: {}",
+            extra_privileges.join(", ")
+        );
+    }
+
     // Configuration first, so the event rate limit is known.
     let loaded = load_config(&config_path);
     let (config, policy_applied) = loaded.clone().unwrap_or_else(|_| {
@@ -305,6 +353,21 @@ async fn run(
             "{e}; LLDP is disabled on every interface until the configuration is corrected and reloaded"
         )),
     });
+
+    // The executable itself: a binary a standard user can replace is a
+    // local privilege escalation. Reported, not fatal, because a replaced
+    // binary would not be running this check anyway.
+    if let Ok(exe) = std::env::current_exe()
+        && let Ok(writers) = lldp_windows::secinfo::non_admin_writers(&exe)
+        && !writers.is_empty()
+    {
+        let list: Vec<String> = writers.iter().map(ToString::to_string).collect();
+        let _ = sink_tx.send(SinkEvent::BinaryInsecure(format!(
+            "{} can be modified by {}",
+            exe.display(),
+            list.join(", ")
+        )));
+    }
 
     let sysinfo = SystemInfo::collect();
     let initial = lldp_windows::adapters::enumerate().unwrap_or_default();
