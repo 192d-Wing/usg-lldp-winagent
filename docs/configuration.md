@@ -19,8 +19,8 @@ overrides the file.
 
 | Key | Default | IEEE name and range |
 | --- | --- | --- |
-| `transmit_interval` | 30 | `msgTxInterval`, 1 to 3600 s |
-| `hold_multiplier` | 4 | `msgTxHold`, 1 to 100. TTL = interval x hold + 1 (121 by default). |
+| `transmit_interval` | 30 | `msgTxInterval`, 5 to 32768 s |
+| `hold_multiplier` | 4 | `msgTxHold`, 2 to 10. TTL = interval x hold + 1 (121 by default). |
 | `fast_tx_interval` | 1 | `msgFastTx`, 1 to 3600 s |
 | `fast_tx_count` | 4 | `txFastInit`, 1 to 8 |
 | `tx_credit_max` | 5 | `txCreditMax`, 1 to 100 |

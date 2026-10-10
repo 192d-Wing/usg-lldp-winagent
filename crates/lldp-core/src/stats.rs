@@ -1,5 +1,6 @@
-//! Statistics counters mirroring the 802.1AB statistics group
-//! (clause 10.5 / 11.5, `verify`).
+//! Statistics counters mirroring the 802.1AB statistics variables (9.2.6.1
+//! to 9.2.6.7) and the LLDP-V2-MIB statistics group (11.5.2).
+//! `lldpduLengthErrors` (9.2.6.8) is not counted.
 
 /// Per-port counters. Names follow the LLDP MIB objects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

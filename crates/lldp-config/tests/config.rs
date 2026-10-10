@@ -81,7 +81,7 @@ fn range_violations_are_collected_with_paths() {
             "logging.event_rate_limit_per_minute"
         ]
     );
-    assert!(v[0].message.contains("1 to 3600"));
+    assert!(v[0].message.contains("5 to 32768"));
 }
 
 #[test]
