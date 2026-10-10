@@ -91,7 +91,7 @@ parallel dumpcap capture.
 | Wireshark: TLV order, lengths, values as in docs/troubleshooting.md | pass 2026-10-09 for transmit: destination 01:80:c2:00:00:0e, 226-byte frame, TLV types 1,2,3,4,5,6,7,8,8,0, chassis ID subtype 7, port ID subtype 3, TTL 121, Station Only, nothing flagged malformed. Both management addresses were IPv6 (see findings) |
 | Fast transmission on link up and on a new neighbor (decision I4) | pass 2026-10-09: 4 frames 1 s apart at start, 4 more starting 0.2 ms after the switch's first LLDPDU, then the 30 s interval |
 | Shutdown LLDPDU on service stop clears the switch entry | partial 2026-10-09: a real Ctrl+C in `--console` mode exits cleanly and logs event 1001 (the earlier scripted Ctrl+C never reached the process). On a repeat elevated run, tshark showed the TTL 0 frame at Ctrl+C and the switch entry cleared immediately: pass for console mode. (A first run was reported as not clearing straight away and was not captured.) Installed service: `Stop-Service` succeeds in about 2 s, the TTL 0 frame is in the capture, and events 1303, 1201, 1400 (restored), 1001 follow: pass. After the stop `ms_lldp` advertises again (TTL 3601), which is the restored prior state |
-| Dock / undock, cable pull, sleep / resume handled without restart | pending |
+| Dock / undock, cable pull, sleep / resume handled without restart | pass 2026-10-09 on the installed service, same process throughout. Cable pull: neighbor removed on link down (event 1303), 4 fast frames on link up, switch rediscovered 4 s later. USB NIC: managed and `ms_lldp` unbound within 4 s of plugging in, and the switch listed both adapters; after the fixes below the unplug is detected within the 10 s rescan and the port stopped. The switch kept the USB entry for a while after the unplug: no TTL 0 can be sent from removed hardware, so it clears on link down or TTL. Sleep: the machine uses Modern Standby; after the fix a fast period starts at each wake (seen in the capture), and the switch entry never went more than about 55 s without a refresh during a 4 minute sleep |
 | Config reload without restart | pass 2026-10-09 on the installed service: `winlldp config reload` applied a `system_name_override` in the same process and sent an updated LLDPDU at once (seen in the capture); an invalid file was rejected with event 1003 and the previous configuration kept; restoring the file and reloading returned to the defaults |
 | Service token holds only SeChangeNotifyPrivilege; restricted SID | pass for the privilege, changed for the SID type. Token of the running service: `NT AUTHORITY\SYSTEM`, one privilege (`SeChangeNotifyPrivilege`), `NT SERVICE\WinLLDP` present, no restricting SIDs. The restricted SID type does not work with Npcap Admin-only mode or the pipe (decision I2 lab result), so the service uses the unrestricted type |
 | Silent MSI install, upgrade, uninstall with logs | pending |
@@ -130,6 +130,20 @@ Findings from the first run, fixed:
   unchanged.
 - `Stop-Service` reported failure because the service stayed "running" for
   the seconds its shutdown takes. It now reports stop pending at once.
+- Unplugging a USB NIC was never noticed: Windows signals link down, then
+  keeps a row for the missing adapter (down, media state unknown) without a
+  further notification. The adapter list is now rescanned every 10 s and
+  such rows are treated as absent. The removal is no longer logged as a
+  port failure (event 1203).
+- Restoring `ms_lldp` on an absent adapter silently succeeded and discarded
+  the recorded state. It now fails with event 1401 and keeps the record for
+  when the adapter returns.
+- Modern Standby (S0 low power idle) sends services no resume power event,
+  so nothing was re-advertised on wake. A wall-clock jump across a short
+  timer is now treated as a resume.
+- A re-advertise arriving just after a scheduled LLDPDU sent the same frame
+  twice in one millisecond. It now keeps the fast interval from the last
+  transmission.
 
 Findings still open:
 
@@ -139,6 +153,11 @@ Findings still open:
   completed within about 5 ms of service start, so this only affects
   non-elevated development runs.
 - `winlldp diagnostics` exits 0 when a check reports FAIL.
+- Neighbor ageing uses a monotonic clock that does not advance while the
+  machine is suspended, so a neighbor that disappeared during sleep is kept
+  until its remaining TTL runs out after wake.
+- Not yet re-run live after the last tidy-ups: removal without event 1203,
+  the shorter event 1401 text, and the duplicate-frame spacing (unit tested).
 
 ## 6. Explicitly out of scope
 
