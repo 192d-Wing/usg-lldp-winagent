@@ -424,12 +424,16 @@ fn reader_loop(h: &Handle, tx: &mpsc::Sender<Vec<u8>>, stop: &AtomicBool, overfl
         let rc = unsafe { (h.api.next_ex)(h.p, &raw mut hdr, &raw mut data) };
         match rc {
             1 => {
-                if hdr.is_null() || data.is_null() {
+                // SAFETY: as above; `as_ref` turns a null header into None.
+                let Some(hdr) = (unsafe { hdr.as_ref() }) else {
+                    continue;
+                };
+                if data.is_null() {
                     continue;
                 }
                 // SAFETY: as above; caplen bytes are readable at `data`.
                 let frame =
-                    unsafe { std::slice::from_raw_parts(data, (*hdr).caplen as usize) }.to_vec();
+                    unsafe { std::slice::from_raw_parts(data, hdr.caplen as usize) }.to_vec();
                 match tx.try_send(frame) {
                     Ok(()) => {}
                     Err(mpsc::error::TrySendError::Full(_)) => {

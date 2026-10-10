@@ -43,14 +43,16 @@ pub fn enumerate() -> Result<Vec<InterfaceInfo>, EnumerateError> {
     // SAFETY: GetIfTable2 allocates the table and stores its pointer in
     // `table`; it is freed with FreeMibTable below on every path.
     let rc = unsafe { GetIfTable2(&raw mut table) };
-    if rc.is_err() || table.is_null() {
+    // SAFETY: on success `table` is either null or points to a table that
+    // stays valid until FreeMibTable; `as_ref` turns null into None.
+    let Some(header) = (unsafe { table.as_ref() }).filter(|_| rc.is_ok()) else {
         return Err(EnumerateError(format!("GetIfTable2 returned {}", rc.0)));
-    }
-    // SAFETY: `table` is a valid table for the duration of this block, and
-    // `NumEntries` rows follow the header as documented.
+    };
+    // SAFETY: `header` borrows the live table, and `NumEntries` rows follow
+    // the header as documented.
     unsafe {
-        let count = (*table).NumEntries as usize;
-        let rows = std::slice::from_raw_parts((*table).Table.as_ptr(), count);
+        let count = header.NumEntries as usize;
+        let rows = std::slice::from_raw_parts(header.Table.as_ptr(), count);
         for row in rows {
             let flags = row.InterfaceAndOperStatusFlags._bitfield;
             // Filter modules layered over an adapter (WFP, QoS, Npcap) get
