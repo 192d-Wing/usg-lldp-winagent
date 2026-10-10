@@ -3,7 +3,7 @@ Set-StrictMode -Version Latest
 
 $script:PipeName = 'WinLLDP'
 $script:ProtocolVersion = 1
-$script:MaxMessage = 1MB
+$script:MaxMessage = 8MB
 
 function ConvertTo-WinLldpRequest {
     <#
