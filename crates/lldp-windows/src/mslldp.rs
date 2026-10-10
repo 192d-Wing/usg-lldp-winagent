@@ -12,11 +12,12 @@ use std::process::Command;
 
 use windows::Win32::System::Registry::{
     HKEY, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE,
-    RRF_RT_REG_DWORD, RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegGetValueW, RegSetValueExW,
+    RRF_RT_REG_DWORD, RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteValueW, RegEnumValueW,
+    RegGetValueW, RegOpenKeyExW, RegSetValueExW,
 };
-use windows::core::PCWSTR;
+use windows::core::{PCWSTR, PWSTR};
 
-use crate::util::to_wide;
+use crate::util::{to_wide, wide_to_string};
 
 /// Component ID of the Microsoft LLDP Protocol Driver binding.
 pub const COMPONENT_ID: &str = "ms_lldp";
@@ -119,6 +120,82 @@ pub fn restore(guid: &str) -> Result<(), BindingError> {
         }
         Some(false) => clear_state(guid),
         None => Ok(()),
+    }
+}
+
+/// Adapter GUIDs that have a recorded prior binding state.
+#[allow(unsafe_code)]
+pub fn recorded() -> Vec<String> {
+    let k = to_wide(STATE_KEY);
+    let mut h = HKEY::default();
+    // SAFETY: `k` is NUL-terminated; `h` receives the key handle.
+    let rc = unsafe {
+        RegOpenKeyExW(
+            HKEY_LOCAL_MACHINE,
+            PCWSTR(k.as_ptr()),
+            None,
+            KEY_READ,
+            &raw mut h,
+        )
+    };
+    if rc.is_err() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for index in 0u32.. {
+        // A GUID in braces is 38 characters.
+        let mut name = [0u16; 64];
+        let mut len = u32::try_from(name.len()).unwrap_or(0);
+        // SAFETY: `name` has `len` elements; `h` is open.
+        let rc = unsafe {
+            RegEnumValueW(
+                h,
+                index,
+                Some(PWSTR(name.as_mut_ptr())),
+                &raw mut len,
+                None,
+                None,
+                None,
+                None,
+            )
+        };
+        if rc.is_err() {
+            break;
+        }
+        out.push(wide_to_string(&name));
+    }
+    // SAFETY: closing the key we opened.
+    unsafe {
+        let _ = RegCloseKey(h);
+    }
+    out
+}
+
+/// Restores every recorded binding, for uninstall, when no service is left
+/// to do it at its next stop. Then removes the state keys if nothing is
+/// recorded any more. Returns the adapters that could not be restored (an
+/// unplugged adapter cannot be changed); their records are kept.
+pub fn restore_all() -> Vec<(String, BindingError)> {
+    let failed: Vec<(String, BindingError)> = recorded()
+        .into_iter()
+        .filter_map(|guid| restore(&guid).err().map(|e| (guid, e)))
+        .collect();
+    remove_empty_state_keys();
+    failed
+}
+
+#[allow(unsafe_code)]
+fn remove_empty_state_keys() {
+    if !recorded().is_empty() {
+        return;
+    }
+    // Innermost first; RegDeleteKeyW refuses a key that still has subkeys.
+    for key in [STATE_KEY, "SOFTWARE\\WinLLDP\\State", "SOFTWARE\\WinLLDP"] {
+        let k = to_wide(key);
+        // SAFETY: `k` is NUL-terminated.
+        if unsafe { RegDeleteKeyW(HKEY_LOCAL_MACHINE, PCWSTR(k.as_ptr())) }.is_err() {
+            break;
+        }
     }
 }
 

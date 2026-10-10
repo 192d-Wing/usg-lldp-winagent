@@ -279,17 +279,16 @@ async fn run(
     let (agent_ev_tx, agent_ev_rx) = broadcast::channel::<AgentEvent>(1024);
 
     // Configuration first, so the event rate limit is known.
-    let (config, policy_applied) = match load_config(&config_path) {
-        Ok(x) => x,
-        Err(e) => {
-            // Start with defaults so the service stays up and the error is
-            // visible through the Event Log and `winlldp status`.
-            let sink = Sink::new(console, 60, sink_rx, agent_ev_rx);
-            tokio::spawn(sink.run());
-            let _ = sink_tx.send(SinkEvent::ConfigError(e.clone()));
-            return Err(e);
-        }
-    };
+    let loaded = load_config(&config_path);
+    let (config, policy_applied) = loaded.clone().unwrap_or_else(|_| {
+        // A missing or invalid file must not stop the service, and must not
+        // fall back to advertising defaults the file may have turned off.
+        // Stay up with every interface disabled: `winlldp status` and
+        // `diagnostics` work, and a reload picks up the corrected file.
+        let mut cfg = Config::default();
+        cfg.agent.enabled = false;
+        (cfg, false)
+    });
     let sink = Sink::new(
         console,
         config.logging.event_rate_limit_per_minute,
@@ -297,9 +296,14 @@ async fn run(
         agent_ev_rx,
     );
     tokio::spawn(sink.run());
-    let _ = sink_tx.send(SinkEvent::ConfigLoaded {
-        path: config_path.display().to_string(),
-        policy_applied,
+    let _ = sink_tx.send(match &loaded {
+        Ok(_) => SinkEvent::ConfigLoaded {
+            path: config_path.display().to_string(),
+            policy_applied,
+        },
+        Err(e) => SinkEvent::ConfigError(format!(
+            "{e}; LLDP is disabled on every interface until the configuration is corrected and reloaded"
+        )),
     });
 
     let sysinfo = SystemInfo::collect();
@@ -353,7 +357,11 @@ async fn run(
         npcap_version,
         backend_status,
         config_path: config_path.clone(),
-        config_loaded_unix: std::sync::atomic::AtomicU64::new(unix_now()),
+        config_loaded_unix: std::sync::atomic::AtomicU64::new(if loaded.is_ok() {
+            unix_now()
+        } else {
+            0
+        }),
         policy_applied: std::sync::atomic::AtomicBool::new(policy_applied),
         reload: Arc::clone(&reload),
     });

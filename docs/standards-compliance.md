@@ -160,6 +160,21 @@ Findings from the MSI run, fixed:
   (about 30 s in `InstallValidate` per product) against 1 s for a fresh
   install. With it enabled the upgrade takes 6 s.
 
+Findings fixed after the checklist was complete (2026-10-10; dev build,
+then the CI MSI: the uninstall cleanup ran on uninstall and was skipped on
+upgrade and install):
+
+- `winlldp diagnostics` exited 0 when a check reported FAIL. It now exits 1.
+- The service exited when `config.yaml` was missing or invalid at start.
+  It now stays up with every interface disabled (event 1003), and a reload
+  of the corrected file starts LLDP without a restart.
+- Nothing restored `ms_lldp` bindings after an unclean stop or removed the
+  registry state at uninstall. `winlldp-service.exe restore-bindings` does
+  both, and the MSI and the `uninstall` subcommand run it. After a killed
+  process it re-enabled the binding on the present adapter and kept the
+  record for the absent one.
+- `winlldp-service.exe uninstall` now also removes the event source.
+
 Findings still open:
 
 - `backend.open()` blocks under the agent lock. Non-elevated with Npcap in
@@ -167,19 +182,16 @@ Findings still open:
   up to 16 s, with IPC calls waiting that long. Under LocalSystem the open
   completed within about 5 ms of service start, so this only affects
   non-elevated development runs.
-- `winlldp diagnostics` exits 0 when a check reports FAIL.
-- Neighbor ageing uses a monotonic clock that does not advance while the
-  machine is suspended, so a neighbor that disappeared during sleep is kept
-  until its remaining TTL runs out after wake.
+- Unverified: whether neighbor ageing advances while the machine is
+  suspended. An earlier note here said it does not; the sleep tests cannot
+  show that either way (the switch kept refreshing the entry at each brief
+  wake). It needs a measured sleep with the neighbor gone.
 - Not yet re-run live after the last tidy-ups: removal without event 1203,
   the shorter event 1401 text, and the duplicate-frame spacing (unit tested).
-- The service exits when `config.yaml` is missing or invalid at start
-  rather than running on defaults; the restart actions then retry twice.
-- Uninstall leaves `HKLM\SOFTWARE\WinLLDP` behind, including the recorded
-  `ms_lldp` state of an adapter that was absent at the time, whose binding
-  therefore stays disabled.
-- `winlldp-service.exe uninstall` (the non-MSI path) does not remove the
-  event source.
+- `ms_lldp` stays disabled on an adapter that is unplugged when WinLLDP is
+  uninstalled: a binding cannot be changed on an absent adapter. The record
+  is kept under `HKLM\SOFTWARE\WinLLDP\State\Bindings`; re-enable with
+  `Enable-NetAdapterBinding -ComponentID ms_lldp` once it is plugged in.
 - An upgrade from a build older than the permanent-config fix still loses
   `config.yaml`. No such build has been released.
 

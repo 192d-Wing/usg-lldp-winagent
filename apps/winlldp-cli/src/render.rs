@@ -25,7 +25,14 @@ pub fn status(s: &ServiceStatusView) {
         s.npcap_version.as_deref().unwrap_or(&s.backend_status),
     );
     kv("Configuration", &s.config_path);
-    kv("Config loaded", timefmt::unix(s.config_loaded_unix));
+    if s.config_loaded_unix == 0 {
+        kv(
+            "Config loaded",
+            "never (configuration error, see event 1003)",
+        );
+    } else {
+        kv("Config loaded", timefmt::unix(s.config_loaded_unix));
+    }
     kv("Policy applied", s.policy_applied);
     kv("Chassis ID", &s.chassis_id);
     kv("System name", &s.system_name);

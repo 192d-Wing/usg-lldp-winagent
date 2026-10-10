@@ -28,6 +28,8 @@ msiexec /i WinLLDP-0.2.0-x64.msi /qn /norestart /l*v "$env:TEMP\WinLLDP-upgrade.
 msiexec /x WinLLDP-0.2.0-x64.msi /qn /norestart /l*v "$env:TEMP\WinLLDP-uninstall.log"
 ```
 
+Uninstall restores any `ms_lldp` binding the service left disabled and removes `HKLM\SOFTWARE\WinLLDP`, except for adapters that are unplugged at the time: their record is kept and the binding stays disabled until re-enabled with `Enable-NetAdapterBinding -ComponentID ms_lldp`. `config.yaml` is left in place.
+
 Upgrades stop the service, replace the binaries, and restart it; the shutdown sends TTL 0 advertisements so switches drop the old entry immediately. Rollback is handled by Windows Installer if any step fails.
 
 ## Microsoft Intune

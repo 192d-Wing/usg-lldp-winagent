@@ -54,8 +54,15 @@
     <!-- Apply the service SID and minimal privileges after the service is registered -->
     <SetProperty Id="HardenService" Value="&quot;[INSTALLFOLDER]winlldp-service.exe&quot; harden" Before="HardenService" Sequence="execute" />
     <CustomAction Id="HardenService" DllEntry="WixQuietExec64" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" Execute="deferred" Impersonate="no" Return="check" />
+    <!-- On a real uninstall (not the removal half of an upgrade), restore any
+         ms_lldp binding the service could not restore at its last stop and
+         remove its registry state. Runs after the service is gone and
+         before its executable is removed; never blocks the uninstall. -->
+    <SetProperty Id="RestoreBindings" Value="&quot;[INSTALLFOLDER]winlldp-service.exe&quot; restore-bindings" Before="RestoreBindings" Sequence="execute" />
+    <CustomAction Id="RestoreBindings" DllEntry="WixQuietExec64" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" Execute="deferred" Impersonate="no" Return="ignore" />
     <InstallExecuteSequence>
       <Custom Action="HardenService" After="InstallServices" Condition="NOT REMOVE~=&quot;ALL&quot;" />
+      <Custom Action="RestoreBindings" After="DeleteServices" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>
   </Package>
 
