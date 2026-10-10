@@ -43,7 +43,6 @@
 
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPHELPLINK" Value="https://github.com/jhics/usg-lldp-winagent" />
-    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
 
     <Feature Id="Main" Title="WinLLDP" Level="1" AllowAbsent="no">
       <ComponentGroupRef Id="Binaries" />
