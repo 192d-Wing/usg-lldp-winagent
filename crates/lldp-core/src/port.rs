@@ -310,6 +310,17 @@ impl Port {
         self.tick(now)
     }
 
+    /// Starts a new fast transmission period with unchanged content, for
+    /// when the neighbor may have lost our entry: resume from sleep, or
+    /// another local agent sent a shutdown LLDPDU carrying our identity.
+    pub fn readvertise(&mut self, now: Instant) -> Vec<Action> {
+        if self.tx_state == TxState::Running {
+            self.tx_fast = self.timers.tx_fast_init;
+            self.tx_now = true;
+        }
+        self.tick(now)
+    }
+
     /// Stops the port for agent shutdown: sends a shutdown LLDPDU if
     /// transmitting and drops all neighbors.
     pub fn shutdown(&mut self, now: Instant) -> Vec<Action> {

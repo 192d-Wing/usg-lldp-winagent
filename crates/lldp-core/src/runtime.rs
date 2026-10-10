@@ -20,6 +20,8 @@ pub enum PortCommand {
     LinkDown,
     /// Replace advertised content.
     UpdateLocal(Box<(LocalSystem, LocalPort)>),
+    /// Start a new fast transmission period with unchanged content.
+    Readvertise,
     /// Return a snapshot of state.
     Snapshot(oneshot::Sender<PortSnapshot>),
     /// Send a shutdown LLDPDU and stop the task.
@@ -94,6 +96,7 @@ pub async fn run_port(
                         let (system, local) = *b;
                         port.update_local(system, local, now)
                     }
+                    Some(PortCommand::Readvertise) => port.readvertise(now),
                     Some(PortCommand::Snapshot(reply)) => {
                         let _ = reply.send(PortSnapshot {
                             neighbors: port.neighbors().iter().cloned().collect(),

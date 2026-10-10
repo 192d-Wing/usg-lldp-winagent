@@ -358,6 +358,16 @@ impl Agent {
         }
     }
 
+    /// Starts a new fast transmission period on one port, or on every port
+    /// when `guid` is `None`, without any change in content.
+    pub async fn readvertise(&self, guid: Option<&str>) {
+        for (g, p) in &self.ports {
+            if guid.is_none_or(|want| want == g) {
+                let _ = p.cmds.send(PortCommand::Readvertise).await;
+            }
+        }
+    }
+
     /// Stops every port, sending shutdown LLDPDUs.
     pub async fn shutdown(&mut self) {
         let guids: Vec<String> = self.ports.keys().cloned().collect();
