@@ -25,6 +25,11 @@ Describe 'Request encoding' {
             $j.PSObject.Properties.Name | Should -Not -Contain 'params'
         }
     }
+    It 'sends an empty params object for an operation with only optional params' {
+        InModuleScope WinLldp {
+            ConvertTo-WinLldpRequest -Op 'ListNeighbors' -Params @{} | Should -Be '{"v":1,"op":"ListNeighbors","params":{}}'
+        }
+    }
     It 'builds a request with params' {
         InModuleScope WinLldp {
             $j = ConvertTo-WinLldpRequest -Op 'SetInterfaceMode' -Params @{ interface = 'Ethernet'; mode = 'rx_only' } | ConvertFrom-Json

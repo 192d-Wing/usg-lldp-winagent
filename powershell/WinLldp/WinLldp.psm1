@@ -16,7 +16,9 @@ function ConvertTo-WinLldpRequest {
         [hashtable] $Params
     )
     $body = [ordered]@{ v = $script:ProtocolVersion; op = $Op }
-    if ($Params -and $Params.Count -gt 0) { $body.params = $Params }
+    # An operation whose parameters are all optional still needs a params
+    # object, so an empty table is sent as {} rather than left out.
+    if ($null -ne $Params) { $body.params = $Params }
     return ($body | ConvertTo-Json -Compress -Depth 5)
 }
 
