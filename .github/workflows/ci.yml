@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+# Every third-party action is pinned to a commit SHA (the version is in the
+# comment) so that a moved tag or a compromised upstream cannot change what
+# runs here. Update with the SHA of the new release, not the tag.
 permissions:
   contents: read
 
@@ -21,12 +24,12 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master 2026-10-09
         with:
           toolchain: "1.99"
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
@@ -42,30 +45,49 @@ jobs:
     name: PowerShell module (Pester, ScriptAnalyzer)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Analyze
         shell: pwsh
         run: |
-          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Force -Scope CurrentUser
           $r = Invoke-ScriptAnalyzer -Path powershell/WinLldp -Recurse -Severity Warning,Error
           $r | Format-Table -AutoSize
           if ($r | Where-Object Severity -eq 'Error') { exit 1 }
       - name: Test
         shell: pwsh
         run: |
-          Install-Module Pester -MinimumVersion 5.5 -Force -Scope CurrentUser
+          Install-Module Pester -RequiredVersion 5.7.1 -Force -Scope CurrentUser
           Invoke-Pester -Path powershell/WinLldp/tests -CI
 
   msi:
     name: MSI build (unsigned, x64)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master 2026-10-09
         with:
           toolchain: "1.99"
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      # No RUSTFLAGS here: the environment variable would replace the
+      # Control Flow Guard flags from .cargo/config.toml.
       - run: cargo build --release --locked -p winlldp-service -p winlldp-cli
+        env:
+          RUSTFLAGS: ""
+      - name: Check exploit mitigations
+        shell: pwsh
+        run: |
+          # The PE optional header's DllCharacteristics must carry
+          # HIGH_ENTROPY_VA (0x20), DYNAMIC_BASE (0x40), NX_COMPAT (0x100),
+          # and GUARD_CF (0x4000).
+          foreach ($exe in 'target\release\winlldp-service.exe', 'target\release\winlldp.exe') {
+            $b = [IO.File]::ReadAllBytes($exe)
+            $pe = [BitConverter]::ToInt32($b, 0x3C)
+            $dc = [BitConverter]::ToUInt16($b, $pe + 24 + 70)
+            "{0}: DllCharacteristics 0x{1:X4}" -f $exe, $dc
+            foreach ($flag in 0x20, 0x40, 0x100, 0x4000) {
+              if (($dc -band $flag) -eq 0) { throw ("{0} lacks DllCharacteristics flag 0x{1:X}" -f $exe, $flag) }
+            }
+          }
       - name: Install WiX v7
         run: |
           dotnet tool install --global wix --version 7.0.0
@@ -79,7 +101,7 @@ jobs:
           .\target\release\winlldp.exe --version
           .\target\release\winlldp.exe config validate examples\config.yaml
           .\target\release\winlldp-service.exe validate --config examples\config.yaml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: WinLLDP-ci-x64-unsigned
           path: dist/*.msi
@@ -88,8 +110,8 @@ jobs:
     name: cargo deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
 
   fuzz:
     name: Fuzz smoke (${{ matrix.target }})
@@ -99,11 +121,13 @@ jobs:
       matrix:
         target: [lldpdu_decode, tlv_parse, org_tlv_parse, frame_parse, config_parse]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master 2026-10-09
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: fuzz
-      - run: cargo install cargo-fuzz --locked
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
       - run: mkdir -p corpus/${{ matrix.target }} && cargo +nightly fuzz run ${{ matrix.target }} corpus/${{ matrix.target }} seeds/${{ matrix.target }} -- -max_total_time=120 -max_len=2048
         working-directory: fuzz
