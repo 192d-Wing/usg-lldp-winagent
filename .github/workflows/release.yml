@@ -5,9 +5,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  id-token: write
+# Actions are pinned to commit SHAs (version in the comment). Permissions
+# are granted per job: only the release job writes to the repository.
+permissions: {}
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,6 +16,10 @@ jobs:
   build:
     name: Build and package (${{ matrix.arch }})
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write      # Azure Trusted Signing and build provenance
+      attestations: write  # build provenance
     strategy:
       matrix:
         include:
@@ -24,12 +28,12 @@ jobs:
           - arch: arm64
             target: aarch64-pc-windows-msvc
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master 2026-10-09
         with:
           toolchain: "1.99"
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Version from tag
         id: ver
@@ -38,8 +42,23 @@ jobs:
           $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF.Substring(11) } else { '0.0.0' }
           "version=$v" >> $env:GITHUB_OUTPUT
 
+      # RUSTFLAGS is not set in this workflow, so the Control Flow Guard
+      # flags in .cargo/config.toml apply.
       - name: Build
         run: cargo build --release --locked --target ${{ matrix.target }} -p winlldp-service -p winlldp-cli
+
+      - name: Check exploit mitigations
+        shell: pwsh
+        run: |
+          foreach ($exe in "target\${{ matrix.target }}\release\winlldp-service.exe", "target\${{ matrix.target }}\release\winlldp.exe") {
+            $b = [IO.File]::ReadAllBytes($exe)
+            $pe = [BitConverter]::ToInt32($b, 0x3C)
+            $dc = [BitConverter]::ToUInt16($b, $pe + 24 + 70)
+            "{0}: DllCharacteristics 0x{1:X4}" -f $exe, $dc
+            foreach ($flag in 0x20, 0x40, 0x100, 0x4000) {
+              if (($dc -band $flag) -eq 0) { throw ("{0} lacks DllCharacteristics flag 0x{1:X}" -f $exe, $flag) }
+            }
+          }
 
       - name: Test (x64 only; arm64 cannot run on this host)
         if: matrix.arch == 'x64'
@@ -47,12 +66,12 @@ jobs:
 
       - name: SBOM
         run: |
-          cargo install cargo-cyclonedx --locked
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
           cargo cyclonedx --format json --override-filename WinLLDP-${{ steps.ver.outputs.version }}-${{ matrix.arch }}.sbom
 
       - name: Sign executables and PowerShell module (Azure Trusted Signing)
         if: github.event_name != 'workflow_dispatch' || vars.SIGNING_ENABLED == 'true'
-        uses: azure/trusted-signing-action@v0
+        uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -83,7 +102,7 @@ jobs:
 
       - name: Sign MSI
         if: github.event_name != 'workflow_dispatch' || vars.SIGNING_ENABLED == 'true'
-        uses: azure/trusted-signing-action@v0
+        uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -97,7 +116,18 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
-      - uses: actions/upload-artifact@v4
+      # SLSA build provenance: a signed statement, verifiable with
+      # `gh attestation verify <file> --repo <owner/repo>`, that this
+      # workflow run produced these files from this commit.
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.msi
+            *.sbom.json
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: WinLLDP-${{ matrix.arch }}
           path: |
@@ -108,11 +138,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: artifacts
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: artifacts/**/*
           generate_release_notes: true

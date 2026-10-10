@@ -1,0 +1,11 @@
+# Exploit mitigations for the Windows binaries. Rust's MSVC targets already
+# enable DEP, ASLR with high-entropy addresses, and SafeSEH-equivalent
+# protections; Control Flow Guard is opt-in. The RUSTFLAGS environment
+# variable replaces these flags rather than adding to them, even when it is
+# empty, so a job that sets RUSTFLAGS must repeat the flag (the MSI job in
+# ci.yml does); release.yml does not set it.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "control-flow-guard"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "control-flow-guard"]

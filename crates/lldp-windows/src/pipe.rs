@@ -7,13 +7,20 @@
 //! The check uses `ImpersonateNamedPipeClient` on the current thread after
 //! the first message has been read, as the API requires, and reverts
 //! immediately.
+//!
+//! Resource limits for untrusted local clients: at most [`MAX_CLIENTS`]
+//! connections at a time (further connections are closed at once), each
+//! request at most `MAX_REQUEST_LEN` bytes, and a connection that sends
+//! nothing for [`IDLE_TIMEOUT`] is closed.
 
 use std::ffi::c_void;
 use std::os::windows::io::AsRawHandle;
 use std::sync::Arc;
+use std::time::Duration;
 
-use lldp_ipc::{Caller, Handler, dispatch, read_message, write_message};
+use lldp_ipc::{Caller, Handler, MAX_REQUEST_LEN, dispatch, read_message_limited, write_message};
 use tokio::net::windows::named_pipe::{NamedPipeServer, PipeMode, ServerOptions};
+use tokio::sync::Semaphore;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HLOCAL, LocalFree};
 use windows::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
@@ -40,16 +47,31 @@ impl std::fmt::Display for PipeError {
 
 impl std::error::Error for PipeError {}
 
+/// Most clients served at the same time. The CLI and the PowerShell module
+/// open one connection per command.
+pub const MAX_CLIENTS: usize = 32;
+
+/// A connected client that sends no request for this long is disconnected.
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Access the read group gets on the pipe: `FILE_GENERIC_READ` plus
+/// `FILE_WRITE_DATA`, `FILE_WRITE_ATTRIBUTES`, and `FILE_WRITE_EA`. That is
+/// `GENERIC_WRITE` without `FILE_APPEND_DATA`, which on a named pipe is
+/// `FILE_CREATE_PIPE_INSTANCE`: with it, any member of the read group could
+/// create instances of the pipe and answer other clients in place of the
+/// service.
+const READ_GROUP_ACCESS: u32 = 0x0012_019B;
+
 /// Builds the SDDL for the pipe: full control for SYSTEM and
-/// Administrators, read and write for `read_group` (a SID string or a
-/// well-known SDDL alias such as `AU`).
+/// Administrators, read and write (but not instance creation) for
+/// `read_group` (a SID string or a well-known SDDL alias such as `AU`).
 pub fn sddl(read_group: &str) -> String {
     let g = if read_group.is_empty() {
         "AU"
     } else {
         read_group
     };
-    format!("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;{g})")
+    format!("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x{READ_GROUP_ACCESS:x};;;{g})")
 }
 
 /// A security descriptor allocated by the system.
@@ -152,13 +174,19 @@ fn client_is_admin(pipe: &NamedPipeServer) -> bool {
     }
 }
 
-/// Serves one connected client until it disconnects.
+/// Serves one connected client until it disconnects, sends an unreadable
+/// request, or stays idle for [`IDLE_TIMEOUT`].
 async fn serve_client(mut pipe: NamedPipeServer, handler: Arc<dyn Handler>) {
     let mut caller: Option<Caller> = None;
     loop {
-        let raw = match read_message(&mut pipe).await {
-            Ok(Some(r)) => r,
-            Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+        let read = tokio::time::timeout(
+            IDLE_TIMEOUT,
+            read_message_limited(&mut pipe, MAX_REQUEST_LEN),
+        )
+        .await;
+        let raw = match read {
+            Ok(Ok(Some(r))) => r,
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::InvalidData => {
                 let resp = lldp_ipc::Response::err(lldp_ipc::IpcError::new(
                     lldp_ipc::ErrorCode::BadRequest,
                     e.to_string(),
@@ -166,7 +194,7 @@ async fn serve_client(mut pipe: NamedPipeServer, handler: Arc<dyn Handler>) {
                 let _ = write_message(&mut pipe, &serde_json_bytes(&resp)).await;
                 break;
             }
-            Ok(None) | Err(_) => break,
+            Ok(Ok(None) | Err(_)) | Err(_) => break,
         };
         let c = *caller.get_or_insert_with(|| Caller {
             is_admin: client_is_admin(&pipe),
@@ -195,6 +223,7 @@ pub async fn serve(
 ) -> Result<(), PipeError> {
     let sd = SecurityDescriptor::from_sddl(&sddl(read_group))?;
     let mut server = create_instance(name, &sd, true)?;
+    let slots = Arc::new(Semaphore::new(MAX_CLIENTS));
     tokio::pin!(shutdown);
     loop {
         tokio::select! {
@@ -205,11 +234,25 @@ pub async fn serve(
                 }
                 let next = create_instance(name, &sd, false)?;
                 let connected = std::mem::replace(&mut server, next);
-                tokio::spawn(serve_client(connected, Arc::clone(&handler)));
+                // Over the limit, the client is disconnected without a
+                // response; dropping the instance does that.
+                if let Ok(permit) = Arc::clone(&slots).try_acquire_owned() {
+                    let handler = Arc::clone(&handler);
+                    tokio::spawn(async move {
+                        serve_client(connected, handler).await;
+                        drop(permit);
+                    });
+                }
             }
         }
     }
 }
+
+/// `SECURITY_IDENTIFICATION`: the server may learn who the client is but
+/// cannot act as the client. Tokio sets this by default; it is spelled out
+/// here because the CLI connects by name, and a pipe of that name created
+/// by another process must not obtain an impersonation-level token.
+const SECURITY_IDENTIFICATION: u32 = 0x0001_0000;
 
 /// Connects as a client (used by the CLI).
 pub async fn connect(
@@ -218,7 +261,10 @@ pub async fn connect(
     use tokio::net::windows::named_pipe::ClientOptions;
     const ERROR_PIPE_BUSY: i32 = 231;
     for _ in 0..20 {
-        match ClientOptions::new().open(name) {
+        match ClientOptions::new()
+            .security_qos_flags(SECURITY_IDENTIFICATION)
+            .open(name)
+        {
             Ok(c) => return Ok(c),
             Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) => {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -236,10 +282,34 @@ pub async fn connect(
 mod tests {
     #[test]
     fn sddl_shape() {
-        assert_eq!(super::sddl(""), "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)");
+        assert_eq!(
+            super::sddl(""),
+            "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;AU)"
+        );
         assert_eq!(
             super::sddl("S-1-5-32-545"),
-            "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;S-1-5-32-545)"
+            "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x12019b;;;S-1-5-32-545)"
         );
+    }
+
+    #[test]
+    fn read_group_cannot_create_pipe_instances() {
+        const FILE_CREATE_PIPE_INSTANCE: u32 = 0x0004;
+        const FILE_READ_DATA: u32 = 0x0001;
+        const FILE_WRITE_DATA: u32 = 0x0002;
+        const SYNCHRONIZE: u32 = 0x0010_0000;
+        let m = super::READ_GROUP_ACCESS;
+        assert_eq!(m & FILE_CREATE_PIPE_INSTANCE, 0);
+        assert_eq!(
+            m & (FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE),
+            FILE_READ_DATA | FILE_WRITE_DATA | SYNCHRONIZE
+        );
+        // No generic bits: they would expand to the full generic mapping.
+        assert_eq!(m & 0xF000_0000, 0);
+    }
+
+    #[test]
+    fn sddl_parses() {
+        assert!(super::SecurityDescriptor::from_sddl(&super::sddl("")).is_ok());
     }
 }

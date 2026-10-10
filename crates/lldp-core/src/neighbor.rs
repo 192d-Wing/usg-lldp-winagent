@@ -4,7 +4,47 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use lldp_codec::{ChassisId, LldpDestination, Lldpdu, MacAddr, PortId};
+use lldp_codec::{ChassisId, LldpDestination, Lldpdu, MacAddr, PortId, Tlv};
+
+/// Most optional TLVs kept per neighbor. A switch sends a dozen or two;
+/// a 9216-octet LLDPDU can carry thousands of two-octet TLVs, each of
+/// which would cost a heap allocation when retained.
+pub const MAX_RETAINED_OPTIONAL_TLVS: usize = 64;
+
+/// Most octets of organizationally specific and unknown TLV values kept
+/// per neighbor. Bounds the memory and the IPC response size an attacker
+/// on the segment can cause; the TLVs this crate decodes are unaffected.
+pub const MAX_RETAINED_OPAQUE_OCTETS: usize = 4096;
+
+/// Applies the retention limits to a decoded LLDPDU before it is stored:
+/// TLVs past [`MAX_RETAINED_OPTIONAL_TLVS`] are dropped, as are
+/// organizationally specific and unknown TLVs once their values total
+/// [`MAX_RETAINED_OPAQUE_OCTETS`]. Returns how many TLVs were dropped.
+pub fn bound_retained(lldpdu: &mut Lldpdu) -> usize {
+    let before = lldpdu.optional.len();
+    let mut opaque = 0usize;
+    let mut kept = 0usize;
+    lldpdu.optional.retain(|t| {
+        if kept >= MAX_RETAINED_OPTIONAL_TLVS {
+            return false;
+        }
+        let cost = match t {
+            Tlv::Organizational(o) => Some(o.data.len().saturating_add(4)),
+            Tlv::Unknown { value, .. } => Some(value.len()),
+            _ => None,
+        };
+        if let Some(c) = cost {
+            let total = opaque.saturating_add(c);
+            if total > MAX_RETAINED_OPAQUE_OCTETS {
+                return false;
+            }
+            opaque = total;
+        }
+        kept = kept.saturating_add(1);
+        true
+    });
+    before.saturating_sub(lldpdu.optional.len())
+}
 
 /// MAC Service Access Point identifier: what makes a neighbor unique.
 ///
@@ -105,14 +145,16 @@ impl NeighborTable {
         self.entries.values()
     }
 
-    /// Records an LLDPDU with a nonzero TTL.
+    /// Records an LLDPDU with a nonzero TTL. The stored copy is subject to
+    /// [`bound_retained`].
     pub fn upsert(
         &mut self,
         msap: Msap,
         source_mac: MacAddr,
-        lldpdu: Lldpdu,
+        mut lldpdu: Lldpdu,
         now: Instant,
     ) -> Insert {
+        bound_retained(&mut lldpdu);
         let ttl = lldpdu.ttl;
         let expires_at = now
             .checked_add(Duration::from_secs(u64::from(ttl)))
@@ -177,5 +219,72 @@ impl NeighborTable {
     /// The earliest expiry among current neighbors.
     pub fn next_expiry(&self) -> Option<Instant> {
         self.entries.values().map(|n| n.expires_at).min()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_RETAINED_OPAQUE_OCTETS, MAX_RETAINED_OPTIONAL_TLVS, bound_retained};
+    use lldp_codec::{ChassisId, Lldpdu, OrgTlv, PortId, Tlv};
+
+    fn pdu() -> Lldpdu {
+        Lldpdu::new(
+            ChassisId::locally_assigned("sw").unwrap_or_else(|| unreachable!()),
+            PortId::locally_assigned("1").unwrap_or_else(|| unreachable!()),
+            120,
+        )
+    }
+
+    #[test]
+    fn tlv_count_is_bounded_and_known_tlvs_kept_first() {
+        let mut p = pdu();
+        p.optional.push(Tlv::SystemName(b"switch".to_vec()));
+        for i in 0..500u16 {
+            p.optional.push(Tlv::Unknown {
+                tlv_type: 100,
+                value: i.to_be_bytes().to_vec(),
+            });
+        }
+        let dropped = bound_retained(&mut p);
+        assert_eq!(p.optional.len(), MAX_RETAINED_OPTIONAL_TLVS);
+        assert_eq!(dropped, 501 - MAX_RETAINED_OPTIONAL_TLVS);
+        assert_eq!(p.system_name(), Some(&b"switch"[..]));
+    }
+
+    #[test]
+    fn opaque_octets_are_bounded_but_decoded_tlvs_are_not_charged() {
+        let mut p = pdu();
+        for _ in 0..20 {
+            p.optional.push(Tlv::Organizational(OrgTlv {
+                oui: [0x00, 0x00, 0x0C],
+                subtype: 1,
+                data: vec![0u8; 500],
+            }));
+        }
+        p.optional.push(Tlv::PortDescription(b"Gi1/0/1".to_vec()));
+        bound_retained(&mut p);
+        let opaque: usize = p
+            .organizational()
+            .map(|o| o.data.len().saturating_add(4))
+            .sum();
+        assert!(opaque <= MAX_RETAINED_OPAQUE_OCTETS);
+        assert_eq!(p.organizational().count(), 8);
+        assert_eq!(p.port_description(), Some(&b"Gi1/0/1"[..]));
+    }
+
+    #[test]
+    fn ordinary_switch_advertisement_is_untouched() {
+        let mut p = pdu();
+        p.optional.push(Tlv::SystemName(b"switch".to_vec()));
+        for subtype in 1..=12u8 {
+            p.optional.push(Tlv::Organizational(OrgTlv {
+                oui: [0x00, 0x80, 0xC2],
+                subtype,
+                data: vec![0u8; 16],
+            }));
+        }
+        let before = p.clone();
+        assert_eq!(bound_retained(&mut p), 0);
+        assert_eq!(p, before);
     }
 }

@@ -185,7 +185,7 @@ pub fn harden() -> Result<(), String> {
     service
         .set_config_service_sid_info(ServiceSidType::Unrestricted)
         .map_err(|e| format!("set SID type: {e}"))?;
-    lldp_windows::svcconfig::set_required_privileges(SERVICE_NAME, &["SeChangeNotifyPrivilege"])?;
+    lldp_windows::svcconfig::set_required_privileges(SERVICE_NAME, crate::REQUIRED_PRIVILEGES)?;
     let actions = windows_service::service::ServiceFailureActions {
         reset_period: windows_service::service::ServiceFailureResetPeriod::After(
             Duration::from_hours(24),

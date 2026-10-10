@@ -14,6 +14,9 @@ Source `WinLLDP` in the Application log.
 | 1002 | Info | Configuration loaded |
 | 1003 | Error | Configuration missing or invalid; the message lists each bad value with its path. At start the service stays up with every interface disabled until the file is corrected and reloaded; on a reload the previous configuration is kept |
 | 1004 | Info | Registry policy overrides applied |
+| 1005 | Error | Configuration file can be modified by a non-administrator (the message names the SID and the access it holds); the file was not loaded and every interface is disabled. Fix the ACL on `%ProgramData%\WinLLDP` (SYSTEM and Administrators full control, Users read) and reload |
+| 1006 | Error | The service token holds privileges beyond `SeChangeNotifyPrivilege`; the service stops. Re-run the MSI or `winlldp-service.exe harden` |
+| 1007 | Error | The service executable can be modified by a non-administrator. Install under `%ProgramFiles%` with the MSI |
 | 1100 | Error | Npcap missing or older than 1.50; LLDP is disabled until fixed |
 | 1101 | Info | Npcap version in use |
 | 1200 / 1201 | Info | Interface managed / unmanaged (with mode) |

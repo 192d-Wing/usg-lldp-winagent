@@ -147,6 +147,7 @@ impl Config {
                 message: "must be 0 to 8".into(),
             });
         }
+        self.validate_addresses_and_ipc(&mut v);
         for (i, pat) in self.interfaces.exclude.iter().enumerate() {
             if pat.is_empty() {
                 v.push(Violation {
@@ -178,6 +179,29 @@ impl Config {
             Ok(())
         } else {
             Err(ConfigError::Invalid(v))
+        }
+    }
+
+    /// Pinned management addresses must parse, and the IPC read group must
+    /// be a SID or SDDL alias because it is interpolated into the pipe's
+    /// security descriptor.
+    fn validate_addresses_and_ipc(&self, v: &mut Vec<Violation>) {
+        for (i, a) in self.lldp.management_addresses.pinned.iter().enumerate() {
+            if a.parse::<std::net::IpAddr>().is_err() {
+                v.push(Violation {
+                    path: format!("lldp.management_addresses.pinned[{i}]"),
+                    message: format!("'{a}' is not an IPv4 or IPv6 address"),
+                });
+            }
+        }
+        if !self.ipc.read_group.is_empty() && !is_sid_or_sddl_alias(&self.ipc.read_group) {
+            v.push(Violation {
+                path: "ipc.read_group".into(),
+                message: format!(
+                    "'{}' must be a SID string such as S-1-5-11 or a two-letter SDDL alias such as AU",
+                    self.ipc.read_group
+                ),
+            });
         }
     }
 
@@ -250,6 +274,24 @@ impl Config {
         }
         r
     }
+}
+
+/// `S-1-<authority>-<subauthority>...` with at least one sub-authority, or
+/// a two-letter SDDL alias. The value is interpolated into the pipe's
+/// security descriptor, so only these two shapes are accepted.
+fn is_sid_or_sddl_alias(s: &str) -> bool {
+    if s.len() == 2 && s.chars().all(|c| c.is_ascii_uppercase()) {
+        return true;
+    }
+    let Some(rest) = s.strip_prefix("S-1-") else {
+        return false;
+    };
+    let parts: Vec<&str> = rest.split('-').collect();
+    parts.len() >= 2
+        && parts.len() <= 16
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.len() <= 10 && p.chars().all(|c| c.is_ascii_digit()))
 }
 
 fn check_opt_str(v: &mut Vec<Violation>, path: &str, s: Option<&str>) {

@@ -28,7 +28,7 @@ pub fn status(s: &ServiceStatusView) {
     if s.config_loaded_unix == 0 {
         kv(
             "Config loaded",
-            "never (configuration error, see event 1003)",
+            "never (configuration error, see event 1003 or 1005)",
         );
     } else {
         kv("Config loaded", timefmt::unix(s.config_loaded_unix));

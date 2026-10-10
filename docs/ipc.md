@@ -3,12 +3,26 @@
 Transport: Windows named pipe `\\.\pipe\WinLLDP`, byte mode, local
 clients only. Security descriptor: SYSTEM and Administrators full control;
 the configured read group (default Authenticated Users, `ipc.read_group`)
-read and write.
+`FILE_GENERIC_READ | FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES |
+FILE_WRITE_EA` (`0x12019B`). That is read and write without
+`FILE_CREATE_PIPE_INSTANCE`, so no member of the read group can create an
+instance of the pipe and answer other clients in the service's place. The
+first instance is created with `FILE_FLAG_FIRST_PIPE_INSTANCE`, so the
+service fails to start its IPC if another process already owns the name.
+Clients open the pipe with `SECURITY_IDENTIFICATION`, so a server at that
+name can learn who the client is but cannot act as the client.
 
 Framing: each message is a 4-byte big-endian unsigned length followed by
-one UTF-8 JSON object. Maximum 1 MiB. A client sends one request and
-reads one response; a connection may carry many request/response pairs in
-sequence.
+one UTF-8 JSON object. A request is at most 64 KiB (`MAX_REQUEST_LEN`);
+a response is at most 8 MiB (`MAX_MESSAGE_LEN`). A client sends one
+request and reads one response; a connection may carry many
+request/response pairs in sequence.
+
+Limits for untrusted local clients: at most 32 connections are served at a
+time (further connections are closed immediately), and a connection that
+sends no request for 30 seconds is closed. Each neighbor keeps at most 64
+optional TLVs and 4 KiB of organizationally specific and unknown TLV data
+(`lldp-core::neighbor`), which bounds the size of `ListNeighbors`.
 
 ## Request
 

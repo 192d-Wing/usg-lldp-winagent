@@ -25,6 +25,11 @@ pub enum SinkEvent {
     },
     /// Configuration failed to load.
     ConfigError(String),
+    /// The process token holds privileges beyond the declared set; the
+    /// service is stopping.
+    PrivilegesUnexpected(String),
+    /// The service executable can be modified by a non-administrator.
+    BinaryInsecure(String),
     /// Npcap load outcome.
     Npcap {
         /// Version if loaded.
@@ -123,7 +128,20 @@ impl Sink {
                     self.emit(Level::Info, id::POLICY_APPLIED, "registry policy overrides applied (HKLM\\SOFTWARE\\Policies\\WinLLDP)");
                 }
             }
+            SinkEvent::ConfigError(m) if m.starts_with(crate::app::INSECURE_CONFIG_PREFIX) => {
+                self.emit(Level::Error, id::CONFIG_INSECURE, m);
+            }
             SinkEvent::ConfigError(m) => self.emit(Level::Error, id::CONFIG_ERROR, m),
+            SinkEvent::PrivilegesUnexpected(m) => self.emit(
+                Level::Error,
+                id::PRIVILEGES_UNEXPECTED,
+                &format!("the service token holds privileges WinLLDP does not declare and is stopping: {m}. Re-run the installer or `winlldp-service.exe harden`"),
+            ),
+            SinkEvent::BinaryInsecure(m) => self.emit(
+                Level::Error,
+                id::BINARY_INSECURE,
+                &format!("the service executable can be modified by a non-administrator: {m}. Install under %ProgramFiles% with the MSI"),
+            ),
             SinkEvent::Npcap { version: Some(v), .. } => self.emit(Level::Info, id::NPCAP_VERSION, &format!("packet backend: {v}")),
             SinkEvent::Npcap { error, .. } => self.emit(
                 Level::Error,

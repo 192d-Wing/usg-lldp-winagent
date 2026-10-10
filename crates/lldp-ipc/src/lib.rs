@@ -1,7 +1,8 @@
 //! WinLLDP local IPC contract, version 1.
 //!
 //! Wire format: each message is a 4-byte big-endian length followed by one
-//! UTF-8 JSON object, at most [`MAX_MESSAGE_LEN`] bytes. Requests carry
+//! UTF-8 JSON object, at most [`MAX_MESSAGE_LEN`] bytes; the server accepts
+//! requests of at most [`MAX_REQUEST_LEN`] bytes. Requests carry
 //! `{"v":1,"op":"<Name>","params":{...}}`; responses carry
 //! `{"v":1,"ok":true,"result":...}` or
 //! `{"v":1,"ok":false,"error":{"code":"...","message":"..."}}`.
@@ -21,7 +22,9 @@ use std::pin::Pin;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub use framing::{MAX_MESSAGE_LEN, read_message, write_message};
+pub use framing::{
+    MAX_MESSAGE_LEN, MAX_REQUEST_LEN, read_message, read_message_limited, write_message,
+};
 pub use view::*;
 
 /// Protocol version this build speaks.
@@ -279,7 +282,8 @@ pub async fn dispatch(handler: &dyn Handler, raw: &[u8], caller: Caller) -> Resp
     }
 }
 
-/// Serves one connection: reads requests until EOF, answering each.
+/// Serves one connection: reads requests of at most [`MAX_REQUEST_LEN`]
+/// bytes until EOF, answering each.
 pub async fn serve_connection<S>(
     mut stream: S,
     handler: &dyn Handler,
@@ -289,7 +293,7 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     loop {
-        let raw = match read_message(&mut stream).await {
+        let raw = match read_message_limited(&mut stream, MAX_REQUEST_LEN).await {
             Ok(Some(r)) => r,
             Ok(None) => return Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {

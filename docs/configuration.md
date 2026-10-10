@@ -65,7 +65,7 @@ address.
 | `allow_temporary_ipv6` | `false` |
 | `allow_link_local` | `false` |
 | `max_per_interface` | 2 (0 to 8; 0 disables) |
-| `pinned` | `[]` list of address strings |
+| `pinned` | `[]` list of IPv4 or IPv6 address strings; anything that does not parse is a validation error |
 
 ## `interfaces`
 
@@ -92,7 +92,7 @@ Modes: `disabled`, `rx_only`, `tx_only`, `rx_tx`.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `true` | Serve `\\.\pipe\WinLLDP` |
-| `read_group` | `S-1-5-11` (Authenticated Users) | SID or SDDL alias granted read access. Mutating operations always require Administrators. |
+| `read_group` | `S-1-5-11` (Authenticated Users) | SID string (`S-1-...`) or two-letter SDDL alias (`AU`, `BU`) granted read access; group names are rejected at validation because the value goes into the pipe's security descriptor. Mutating operations always require Administrators. |
 
 ## `windows`
 

@@ -15,7 +15,7 @@ Each release publishes `WinLLDP-<version>-x64.msi`, `WinLLDP-<version>-arm64.msi
 The MSI installs:
 
 - `%ProgramFiles%\WinLLDP\winlldp-service.exe`, `winlldp.exe`, `LICENSE.txt`, and adds the folder to the system `PATH`.
-- `%ProgramData%\WinLLDP\config.yaml` (never overwritten on upgrade, and left in place on uninstall).
+- `%ProgramData%\WinLLDP\config.yaml` (never overwritten on upgrade, and left in place on uninstall). The MSI sets a protected ACL on the directory: SYSTEM and Administrators full control, Users read, inherited by the file. The service refuses to load a configuration file that anyone else can modify (Event ID 1005), so keep that ACL if the file is managed by another tool.
 - `%ProgramFiles%\WindowsPowerShell\Modules\WinLldp\` (the PowerShell module, visible to both Windows PowerShell 5.1 and PowerShell 7).
 - The `WinLLDP` service: automatic start, LocalSystem, service SID (unrestricted), `SeChangeNotifyPrivilege` only, restart on failure.
 - The `WinLLDP` Event Log source.

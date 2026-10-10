@@ -166,7 +166,8 @@ Named pipe `\\.\pipe\WinLLDP`. Security descriptor: read-class requests
 allowed for Authenticated Users, mutating requests additionally checked
 in-process against the client token (`ImpersonateNamedPipeClient` ->
 `CheckTokenMembership(Administrators)`). One JSON object per message,
-4-byte big-endian length prefix, 1 MiB max. Request carries
+4-byte big-endian length prefix; requests at most 64 KiB, responses at
+most 8 MiB. Request carries
 `{"v":1,"op":"ListNeighbors","params":{...}}`; response carries
 `{"v":1,"ok":true,"result":...}` or `{"v":1,"ok":false,"error":{"code":"...","message":"..."}}`.
 Full contract in docs/ipc.md (written in Phase 5).

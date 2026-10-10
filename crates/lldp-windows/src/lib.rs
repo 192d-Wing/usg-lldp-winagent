@@ -22,6 +22,8 @@ pub mod pipe;
 #[cfg(windows)]
 pub mod policy;
 #[cfg(windows)]
+pub mod secinfo;
+#[cfg(windows)]
 pub mod svcconfig;
 #[cfg(windows)]
 pub mod sysinfo;

@@ -183,3 +183,42 @@ fn policy_wins() {
         InterfaceMode::Disabled
     );
 }
+
+#[test]
+fn ipc_read_group_must_be_a_sid_or_sddl_alias() {
+    for ok in [
+        "S-1-5-11",
+        "S-1-5-32-545",
+        "AU",
+        "BU",
+        "S-1-5-21-1-2-3-513",
+        "",
+    ] {
+        let text = format!("version: 1\nipc:\n  read_group: \"{ok}\"\n");
+        assert!(Config::from_yaml(&text).is_ok(), "{ok}");
+    }
+    for bad in [
+        "Authenticated Users",
+        "S-1-5-",
+        "S-1",
+        "AU)(A;;GA;;;WD",
+        "au",
+        "S-1-5-11;",
+    ] {
+        let text = format!("version: 1\nipc:\n  read_group: \"{bad}\"\n");
+        let ConfigError::Invalid(v) = Config::from_yaml(&text).unwrap_err() else {
+            panic!("{bad}")
+        };
+        assert_eq!(v[0].path, "ipc.read_group", "{bad}");
+    }
+}
+
+#[test]
+fn pinned_management_addresses_must_parse() {
+    let text = "version: 1\nlldp:\n  management_addresses:\n    pinned: [\"10.0.0.1\", \"fd00::1\", \"not-an-address\"]\n";
+    let ConfigError::Invalid(v) = Config::from_yaml(text).unwrap_err() else {
+        panic!()
+    };
+    assert_eq!(v.len(), 1);
+    assert_eq!(v[0].path, "lldp.management_addresses.pinned[2]");
+}
