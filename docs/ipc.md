@@ -74,8 +74,10 @@ The authoritative definitions are the `serde` structs in
   `frames`, plus the `Lldpdu` members (`ttl` is the advertised TTL).
 - `LocalAdvertisement`: `interface_guid`, `interface_alias`, `mode`,
   `destination_mac`, `source_mac`, `lldpdu_hex`, plus the `Lldpdu` members.
-- `Statistics`: the `lldpStatsRx/TxPort*` counters plus `rem_inserts`,
-  `rem_deletes`, `rem_drops`, `rx_queue_overflow`.
+- `Statistics`: the `lldpStatsRx/TxPort*` counters (including
+  `tx_lldpdu_length_errors`) plus `rem_inserts`, `rem_deletes`,
+  `rem_drops`, `rx_queue_overflow`. `rx_frames_total` counts every LLDP
+  frame received, including those then discarded.
 
 `decoded` for organizational TLVs is an object with a `type` member naming
 the TLV (for example `port_vlan_id`, `mac_phy_configuration_status`,

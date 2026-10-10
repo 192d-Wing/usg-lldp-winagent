@@ -1,4 +1,5 @@
-//! The remote systems table for one port (802.1AB clause 10.3, `verify`).
+//! The remote systems table for one port (802.1AB-2016 9.2.7.5, 9.2.7.7.4,
+//! 9.2.7.7.5).
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};

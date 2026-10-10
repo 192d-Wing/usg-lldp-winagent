@@ -113,25 +113,79 @@ fn readvertise_restarts_the_fast_period_with_unchanged_content() {
 }
 
 #[test]
-fn local_change_does_not_use_up_the_fast_period() {
-    // Figure 9-3: localChange goes straight to SIGNAL_TX; only a timer
-    // expiry or a new neighbor passes TX_TIMER_EXPIRES and decrements txFast.
+fn local_change_sends_at_once_and_starts_a_fast_period() {
+    // 9.2.7.8: somethingChangedLocal sets localChange and copies txFastInit
+    // to txFast. Figure 9-3: localChange goes straight to SIGNAL_TX, so the
+    // immediate LLDPDU is not one of the txFastInit that follow.
     let t0 = Instant::now();
     let ms = Duration::from_millis;
     let mut p = port(AdminStatus::RxTx, t0);
-    assert_eq!(transmits(&p.link_up(t0)).len(), 1);
+    p.link_up(t0);
+    for s in 1..=3 {
+        p.tick(t0 + Duration::from_secs(s));
+    }
+    let t = t0 + Duration::from_secs(10);
     let mut changed = local();
     changed.port_description = Some(b"Renamed".to_vec());
-    assert_eq!(
-        transmits(&p.update_local(system(), changed, t0 + ms(500))).len(),
-        1
-    );
-    // Three fast frames still follow, one msgFastTx apart, then the normal interval.
-    for at in [1500, 2500, 3500] {
-        assert_eq!(p.next_deadline(), Some(t0 + ms(at)));
-        assert_eq!(transmits(&p.tick(t0 + ms(at))).len(), 1);
+    assert_eq!(transmits(&p.update_local(system(), changed, t)).len(), 1);
+    for at in [1000, 2000, 3000, 4000] {
+        assert_eq!(p.next_deadline(), Some(t + ms(at)));
+        assert_eq!(transmits(&p.tick(t + ms(at))).len(), 1);
     }
-    assert_eq!(p.next_deadline(), Some(t0 + ms(33_500)));
+    assert_eq!(p.next_deadline(), Some(t + ms(34_000)));
+}
+
+#[test]
+fn lldpdu_that_does_not_fit_is_sent_without_some_optional_tlvs() {
+    // 9.2.7.2: mandatory TLVs plus as many optional ones as fit, and the
+    // length error is counted.
+    let t0 = Instant::now();
+    let cfg = PortConfig {
+        admin_status: AdminStatus::TxOnly,
+        max_lldpdu_len: 40,
+        ..PortConfig::default()
+    };
+    let mut p = Port::new(cfg, TimerParams::DEFAULT, system(), local(), OUR_MAC, t0);
+    let full = p.local_lldpdu();
+    let a = p.link_up(t0);
+    let (_, pdu) = parse_lldp_frame(transmits(&a)[0]).unwrap();
+    assert!(pdu.len() <= 40);
+    let sent = Lldpdu::decode(pdu).unwrap().lldpdu;
+    assert_eq!(sent.chassis_id, full.chassis_id);
+    assert_eq!(sent.ttl, 121);
+    assert!(sent.optional.len() < full.optional.len());
+    assert_eq!(p.stats().tx_lldpdu_length_errors, 1);
+}
+
+#[test]
+fn a_discarded_tlv_counts_the_frame_as_in_error_but_keeps_it() {
+    let t0 = Instant::now();
+    let mut p = port(AdminStatus::RxOnly, t0);
+    p.link_up(t0);
+    let mut pdu = Lldpdu::new(
+        ChassisId::mac(SW_MAC),
+        PortId::interface_name("Gi1/0/1").unwrap(),
+        120,
+    );
+    // Enabled but not supported (8.5.8.3).
+    pdu.optional
+        .push(Tlv::SystemCapabilities(SystemCapabilities {
+            supported: 0,
+            enabled: 4,
+        }));
+    let mut frame = Vec::new();
+    write_lldp_frame(
+        &mut frame,
+        LldpDestination::NearestBridge,
+        SW_MAC,
+        &pdu.encode(1500).unwrap(),
+    );
+    p.handle_frame(&frame, t0);
+    assert_eq!(p.neighbors().len(), 1);
+    assert_eq!(p.stats().rx_frames_total, 1);
+    assert_eq!(p.stats().rx_tlvs_discarded_total, 1);
+    assert_eq!(p.stats().rx_frames_errors, 1);
+    assert_eq!(p.stats().rx_frames_discarded_total, 0);
 }
 
 #[test]
@@ -328,7 +382,9 @@ fn malformed_frames_are_counted_not_fatal() {
     p.handle_frame(&bad, t0);
     assert_eq!(p.stats().rx_frames_errors, 2);
     assert_eq!(p.stats().rx_frames_discarded_total, 2);
-    assert_eq!(p.stats().rx_frames_total, 0);
+    // The second one was an LLDP frame for this agent, so it is counted
+    // as received before it is discarded (9.2.6.4).
+    assert_eq!(p.stats().rx_frames_total, 1);
 }
 
 #[test]
@@ -343,7 +399,9 @@ fn own_echo_and_non_lldp_destinations_are_ignored() {
     unicast[..6].copy_from_slice(&OUR_MAC.0);
     p.handle_frame(&unicast, t0);
     assert_eq!(p.neighbors().len(), 0);
-    assert_eq!(p.stats().rx_frames_discarded_total, 1);
+    // Not addressed to this agent, so not delivered or counted (7.4).
+    assert_eq!(p.stats().rx_frames_total, 0);
+    assert_eq!(p.stats().rx_frames_discarded_total, 0);
 }
 
 #[test]
@@ -499,20 +557,40 @@ fn update_local_transmits_only_on_change() {
 fn timer_params_validation_and_ttl() {
     assert!(TimerParams::DEFAULT.validate().is_ok());
     assert_eq!(TimerParams::DEFAULT.ttl(), 121);
+    // Ranges of 9.2.5.5 to 9.2.5.19.
     let big = TimerParams {
-        msg_tx_interval: 32768,
-        msg_tx_hold: 10,
+        msg_tx_interval: 3600,
+        msg_tx_hold: 100,
+        tx_credit_max: 10,
         ..TimerParams::DEFAULT
     };
     assert!(big.validate().is_ok());
     assert_eq!(big.ttl(), 65535);
-    for (interval, hold) in [(4, 4), (32769, 4), (30, 1), (30, 11)] {
+    let small = TimerParams {
+        msg_tx_interval: 1,
+        msg_tx_hold: 1,
+        tx_credit_max: 1,
+        ..TimerParams::DEFAULT
+    };
+    assert!(small.validate().is_ok());
+    assert_eq!(small.ttl(), 2);
+    for (interval, hold, credit) in [
+        (3601, 4, 5),
+        (30, 0, 5),
+        (30, 101, 5),
+        (30, 4, 0),
+        (30, 4, 11),
+    ] {
         let p = TimerParams {
             msg_tx_interval: interval,
             msg_tx_hold: hold,
+            tx_credit_max: credit,
             ..TimerParams::DEFAULT
         };
-        assert!(p.validate().is_err(), "{interval} x {hold}");
+        assert!(
+            p.validate().is_err(),
+            "{interval} x {hold}, credit {credit}"
+        );
     }
     let bad = TimerParams {
         msg_tx_interval: 0,

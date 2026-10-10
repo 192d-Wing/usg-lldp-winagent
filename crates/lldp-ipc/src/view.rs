@@ -261,6 +261,9 @@ pub struct StatisticsView {
     pub rx_ageouts_total: u64,
     /// `lldpStatsTxPortFramesTotal`.
     pub tx_frames_total: u64,
+    /// `lldpStatsTxLLDPDULengthErrors`.
+    #[serde(default)]
+    pub tx_lldpdu_length_errors: u64,
     /// Neighbor inserts.
     pub rem_inserts: u64,
     /// Neighbor deletes.
@@ -284,6 +287,7 @@ impl StatisticsView {
             rx_tlvs_unrecognized_total: s.rx_tlvs_unrecognized_total,
             rx_ageouts_total: s.rx_ageouts_total,
             tx_frames_total: s.tx_frames_total,
+            tx_lldpdu_length_errors: s.tx_lldpdu_length_errors,
             rem_inserts: s.rem_inserts,
             rem_deletes: s.rem_deletes,
             rem_drops: s.rem_drops,

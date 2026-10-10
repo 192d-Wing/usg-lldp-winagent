@@ -1,6 +1,8 @@
-//! LLDP timer and transmission parameters (9.2.5). Defaults and ranges are
-//! those of the LLDP-V2-MIB objects in IEEE Std 802.1AB-2009/Cor 2-2015,
-//! 11.5.2.
+//! LLDP timer and transmission parameters. Defaults and ranges are those
+//! of IEEE Std 802.1AB-2016, 9.2.5. The LLDP-V2-MIB (11.5.2) gives other
+//! ranges for three of them (msgTxInterval 5 to 32768, msgTxHold 2 to 10,
+//! txCreditMax 1 to 100); 11.5.2 says clause 9 takes precedence. Clause 9
+//! gives no range for reinitDelay, so the MIB's is used.
 
 use core::fmt;
 use std::time::Duration;
@@ -9,9 +11,9 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimerParams {
     /// `msgTxInterval`: seconds between LLDPDUs in normal operation.
-    /// Range 5 to 32768, default 30 (9.2.5.7).
+    /// Range 1 to 3600, default 30 (9.2.5.7).
     pub msg_tx_interval: u16,
-    /// `msgTxHold`: multiplier for TTL. Range 2 to 10, default 4 (9.2.5.6).
+    /// `msgTxHold`: multiplier for TTL. Range 1 to 100, default 4 (9.2.5.6).
     pub msg_tx_hold: u8,
     /// `msgFastTx`: seconds between LLDPDUs during fast transmission.
     /// Range 1 to 3600, default 1 (9.2.5.5).
@@ -20,10 +22,10 @@ pub struct TimerParams {
     /// period. Range 1 to 8, default 4 (9.2.5.19).
     pub tx_fast_init: u8,
     /// `txCreditMax`: maximum number of consecutive LLDPDUs that can be
-    /// transmitted at any time. Range 1 to 100, default 5 (9.2.5.17).
+    /// transmitted at any time. Range 1 to 10, default 5 (9.2.5.17).
     pub tx_credit_max: u8,
     /// `reinitDelay`: seconds to wait after a shutdown before
-    /// re-initializing transmission. Range 1 to 10, default 2 (9.2.5.10).
+    /// re-initializing transmission. Default 2 (9.2.5.10), range 1 to 10.
     pub reinit_delay: u8,
 }
 
@@ -71,17 +73,17 @@ impl TimerParams {
 
     /// Checks every parameter against its range.
     pub fn validate(&self) -> Result<(), TimerParamError> {
-        check("msgTxInterval", u32::from(self.msg_tx_interval), 5, 32768)?;
-        check("msgTxHold", u32::from(self.msg_tx_hold), 2, 10)?;
+        check("msgTxInterval", u32::from(self.msg_tx_interval), 1, 3600)?;
+        check("msgTxHold", u32::from(self.msg_tx_hold), 1, 100)?;
         check("msgFastTx", u32::from(self.msg_fast_tx), 1, 3600)?;
         check("txFastInit", u32::from(self.tx_fast_init), 1, 8)?;
-        check("txCreditMax", u32::from(self.tx_credit_max), 1, 100)?;
+        check("txCreditMax", u32::from(self.tx_credit_max), 1, 10)?;
         check("reinitDelay", u32::from(self.reinit_delay), 1, 10)?;
         Ok(())
     }
 
-    /// TTL to advertise: `min(65535, msgTxInterval * msgTxHold + 1)`, as in
-    /// `TX_IDLE` of the transmit state machine (Figure 9-1).
+    /// TTL to advertise: `min(65535, msgTxInterval * msgTxHold + 1)`
+    /// (9.2.5.22).
     pub fn ttl(&self) -> u16 {
         let v = u32::from(self.msg_tx_interval)
             .saturating_mul(u32::from(self.msg_tx_hold))

@@ -64,15 +64,15 @@ impl Default for Agent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Lldp {
-    /// `msgTxInterval`, seconds. 5 to 32768.
+    /// `msgTxInterval`, seconds. 1 to 3600.
     pub transmit_interval: u16,
-    /// `msgTxHold`. 2 to 10.
+    /// `msgTxHold`. 1 to 100.
     pub hold_multiplier: u8,
     /// `msgFastTx`, seconds. 1 to 3600.
     pub fast_tx_interval: u16,
     /// `txFastInit`. 1 to 8.
     pub fast_tx_count: u8,
-    /// `txCreditMax`. 1 to 100.
+    /// `txCreditMax`. 1 to 10.
     pub tx_credit_max: u8,
     /// `reinitDelay`, seconds. 1 to 10.
     pub reinit_delay: u8,
