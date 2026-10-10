@@ -156,16 +156,26 @@ pub fn non_admin_writers(path: &Path) -> Result<Vec<Writer>, String> {
     .map_err(|e| format!("GetAclInformation: {e}"))?;
 
     for index in 0..info.AceCount {
-        let mut ace: *mut c_void = std::ptr::null_mut();
-        // SAFETY: `index` is below the ACE count of a live ACL.
-        if unsafe { GetAce(dacl, index, &raw mut ace) }.is_err() || ace.is_null() {
+        let mut slot = std::mem::MaybeUninit::<*mut c_void>::uninit();
+        // SAFETY: `index` is below the ACE count of a live ACL, and `slot`
+        // is a valid place for the pointer GetAce writes.
+        if unsafe { GetAce(dacl, index, slot.as_mut_ptr()) }.is_err() {
             continue;
         }
-        // SAFETY: every ACE starts with an ACE_HEADER.
-        let header = unsafe { *ace.cast::<ACE_HEADER>() };
+        // SAFETY: GetAce succeeded, so it wrote the pointer.
+        let Some(ace) = std::ptr::NonNull::new(unsafe { slot.assume_init() }) else {
+            continue;
+        };
+        // SAFETY: GetAce returned a pointer to an ACE inside the live ACL,
+        // and every ACE starts with an ACE_HEADER.
+        let header = unsafe { ace.cast::<ACE_HEADER>().read_unaligned() };
         if header.AceType != ACCESS_ALLOWED_ACE_TYPE
             && header.AceType != ACCESS_ALLOWED_CALLBACK_ACE_TYPE
         {
+            continue;
+        }
+        if usize::from(header.AceSize) < std::mem::size_of::<ACCESS_ALLOWED_ACE>() {
+            // Too short to hold a mask and a SID; nothing to read.
             continue;
         }
         if u32::from(header.AceFlags) & INHERIT_ONLY_ACE.0 != 0 {
@@ -173,12 +183,13 @@ pub fn non_admin_writers(path: &Path) -> Result<Vec<Writer>, String> {
             continue;
         }
         // SAFETY: allowed and allowed-callback ACEs share the
-        // ACCESS_ALLOWED_ACE prefix, and the SID starts at `SidStart`.
+        // ACCESS_ALLOWED_ACE prefix, the ACE is at least that long (checked
+        // above), and the SID starts at `SidStart`.
         let (mask, sid) = unsafe {
-            let a = ace.cast::<ACCESS_ALLOWED_ACE>();
+            let a = ace.cast::<ACCESS_ALLOWED_ACE>().as_ptr();
             (
-                (*a).Mask,
-                PSID((&raw const (*a).SidStart).cast_mut().cast()),
+                (&raw const (*a).Mask).read_unaligned(),
+                PSID((&raw mut (*a).SidStart).cast()),
             )
         };
         if mask & WRITE_MASK == 0 {
