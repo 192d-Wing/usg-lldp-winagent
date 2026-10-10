@@ -9,9 +9,9 @@ architectural decisions already made (do not reopen them).
   docs/standards-compliance.md section 5 has passed on one Windows 11 x64
   workstation against a Cisco C9200CX. That section also lists the open
   findings. Not covered: the signed release MSI, ARM64, Server, Juniper.
-- Timers and the transmit state machines were checked against 802.1AB-2009/Cor 2-2015
-  (docs/standards-compliance.md section 4.1). Frame and TLV formats and the
-  receive rules are still `verify`; that needs the base standard.
+- The 802.1AB requirements were checked against IEEE Std 802.1AB-2016
+  (docs/standards-compliance.md section 4.1, which also lists the deliberate
+  differences). The 802.1Q, 802.3, and TIA-1057 TLVs are still `verify`.
 - The service SID type is unrestricted, not restricted; see the lab result
   under decision I2 in docs/decisions.md before changing it.
 
@@ -24,8 +24,9 @@ architectural decisions already made (do not reopen them).
 - Before committing: cargo fmt --all --check, cargo clippy --workspace
   --all-targets, cargo test --workspace; on non-Windows also
   cargo clippy --workspace --all-targets --target x86_64-pc-windows-msvc.
-- Clause numbers and receive rules marked `verify` must be checked against
-  IEEE 802.1AB-2016 before being treated as confirmed.
+- Anything marked `verify` must be checked against the published standard
+  before being treated as confirmed. Where clause 9 of 802.1AB-2016 and its
+  MIB disagree, clause 9 takes precedence (11.5.2).
 - examples/config.yaml must equal Config::default(); a test enforces it.
 
 ## Lab workflow on Windows

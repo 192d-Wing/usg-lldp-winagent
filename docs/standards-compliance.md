@@ -1,7 +1,9 @@
-# Standards Compliance (Phase 1 draft)
+# Standards Compliance
 
-Status: research draft. Clause numbers marked **verify** must be checked
-against the published IEEE text before they are cited in code or tests.
+Status: the IEEE 802.1AB-2016 requirements were checked against the
+published text on 2026-10-10 (section 4.1). The organizationally specific
+TLVs of section 2 come from other standards and are still **verify**: check
+them against the published text before relying on them.
 IEEE 802.1AB-2016 is available at no cost through the IEEE GET Program
 (IEEE Xplore, free account required).
 
@@ -49,92 +51,162 @@ LLDP itself is not an IETF protocol. The following RFCs are referenced by
 | YANG | RFC 7950 | Only via 802.1ABcu, as a schema reference. |
 | SNMP | RFC 3410-3418 | Not planned. Listed to make the exclusion explicit. |
 
-## 4. Compliance matrix (skeleton)
+## 4. Compliance matrix
 
-Clause numbers below reflect 802.1AB-2016 as best known; every row is
-**verify** until checked against the standard text. Section 4.1 lists what
-has been checked so far, and against which document.
+Every row was checked against the 802.1AB-2016 text; section 4.1 lists
+what was confirmed, what was corrected, and where the agent differs on
+purpose. "Lab pending" in the status column predates section 5.
 
 | Standard | Clause | Requirement | Implementation | Test Case | Status |
 | --- | --- | --- | --- | --- | --- |
-| IEEE 802.1AB-2016 | 7.4 (Table 7-1) | LLDP destination MAC addresses (nearest bridge 01-80-C2-00-00-0E; nearest non-TPMR 01-80-C2-00-00-03; nearest customer bridge 01-80-C2-00-00-00) | lldp-codec `ethernet::LldpDestination` | `lldpdu::ethernet_frame_roundtrip`, `port::own_echo_and_non_lldp_destinations_are_ignored` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 7.1 (Table 7-1), 7.4 | LLDP destination MAC addresses (nearest bridge 01-80-C2-00-00-0E; nearest non-TPMR 01-80-C2-00-00-03; nearest customer bridge 01-80-C2-00-00-00) | lldp-codec `ethernet::LldpDestination` | `lldpdu::ethernet_frame_roundtrip`, `port::own_echo_and_non_lldp_destinations_are_ignored` | Implemented, unit tested; lab pending |
 | IEEE 802.1AB-2016 | 8.2 | LLDPDU format and TLV ordering (Chassis ID, Port ID, TTL first; End of LLDPDU last) | lldp-codec `Lldpdu::decode/encode` | `lldpdu::wrong_mandatory_order_rejected`, `missing_mandatory_tlvs_rejected`, `duplicate_mandatory_rejected` | Implemented, unit tested, fuzzed |
-| IEEE 802.1AB-2016 | 8.4 | Basic TLV format (7-bit type, 9-bit length) | lldp-codec `tlv` | `lldpdu::bad_tlv_lengths_rejected`, `max_length_tlv_roundtrips`, fuzz `tlv_parse` | Implemented, unit tested, fuzzed |
+| IEEE 802.1AB-2016 | 8.4 | Basic TLV format (7-bit type, 9-bit length) | lldp-codec `tlv` | `lldpdu::bad_tlv_lengths_rejected`, `optional_tlv_past_end_of_frame_is_discarded_alone`, `max_length_tlv_roundtrips`, fuzz `tlv_parse` | Implemented, unit tested, fuzzed |
 | IEEE 802.1AB-2016 | 8.5.1 | End of LLDPDU TLV | lldp-codec | `lldpdu::end_tlv_with_length_is_warning`, `missing_end_tlv_is_warning` | Implemented, unit tested; lab pending |
-| IEEE 802.1AB-2016 | 8.5.2 | Chassis ID TLV and subtypes | lldp-codec `types::ChassisId` | `lldpdu::invalid_identifiers_rejected`, `encode_rejects_invalid_values` | Implemented, unit tested; lab pending |
-| IEEE 802.1AB-2016 | 8.5.3 | Port ID TLV and subtypes | lldp-codec `types::PortId` | `lldpdu::invalid_identifiers_rejected` | Implemented, unit tested; lab pending |
-| IEEE 802.1AB-2016 | 8.5.4 | Time To Live TLV; TTL = min(65535, msgTxInterval x msgTxHold + 1) | lldp-codec / lldp-core `TimerParams::ttl` | `lldpdu::zero_ttl_and_max_ttl_decode`, `port::timer_params_validation_and_ttl` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.2 | Chassis ID TLV and subtypes | lldp-codec `types::ChassisId` | `lldpdu::identifiers_are_validated_by_length_only`, `encode_rejects_invalid_values` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.3 | Port ID TLV and subtypes | lldp-codec `types::PortId` | `lldpdu::identifiers_are_validated_by_length_only` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.4 | Time To Live TLV; TTL = min(65535, msgTxInterval x msgTxHold + 1) | lldp-codec / lldp-core `TimerParams::ttl` | `lldpdu::zero_ttl_and_max_ttl_decode`, `shutdown_lldpdu_is_not_validated_past_the_ttl`, `port::timer_params_validation_and_ttl` | Implemented, unit tested; lab pending |
 | IEEE 802.1AB-2016 | 8.5.5 | Port Description TLV | lldp-codec | `lldpdu::full_roundtrip`, `overlong_string_tlv_discarded` | Implemented, unit tested; lab pending |
 | IEEE 802.1AB-2016 | 8.5.6 | System Name TLV | lldp-codec | `lldpdu::full_roundtrip`, `duplicate_optional_keeps_first` | Implemented, unit tested; lab pending |
 | IEEE 802.1AB-2016 | 8.5.7 | System Description TLV | lldp-codec | `lldpdu::full_roundtrip` | Implemented, unit tested; lab pending |
-| IEEE 802.1AB-2016 | 8.5.8 | System Capabilities TLV (Station Only bit for workstation) | lldp-codec `types::SystemCapabilities` | `lldpdu::capabilities_short_names`, `invalid_capabilities_discarded`, `resolver::defaults_advertise_fqdn_os_and_station_only` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 8.5.8 | System Capabilities TLV (Station Only bit for workstation) | lldp-codec `types::SystemCapabilities` | `lldpdu::capabilities_short_names`, `invalid_capabilities_rejected_or_discarded`, `resolver::defaults_advertise_fqdn_os_and_station_only` | Implemented, unit tested; lab pending |
 | IEEE 802.1AB-2016 | 8.5.9 | Management Address TLV (AFN, interface numbering, OID) | lldp-codec `types::ManagementAddress` | `lldpdu::management_address_edge_cases`, `resolver::management_address_rules` | Implemented, unit tested; lab pending |
-| IEEE 802.1AB-2016 | 8.6 | Organizationally Specific TLV format (type 127, OUI, subtype) | lldp-codec `org` | `lldpdu::org_tlv_too_short_discarded`, `org::*`, fuzz `org_tlv_parse` | Implemented, unit tested; lab pending |
-| IEEE 802.1AB-2016 | 9.2 | Transmit, transmit-timer, and receive state machines | lldp-core `port::Port` | `port::link_up_starts_fast_transmission_then_normal_interval`, `receive_adds_updates_and_expires_neighbors`, `new_neighbor_triggers_fast_start` | Transmit and transmit timer machines checked against 802.1AB-2009/Cor 2-2015 Figures 9-1 and 9-3 (section 4.1); receive machine still verify |
-| IEEE 802.1AB-2016 | 9.2 | Timer parameters: msgTxInterval (default 30), msgTxHold (default 4), msgFastTx (default 1), txFastInit (default 4), txCreditMax (default 5), reinitDelay (default 2) | lldp-core `TimerParams`, lldp-config | `port::credit_limits_bursts_of_local_changes`, `config::range_violations_are_collected_with_paths` | Defaults and ranges checked against the LLDP-V2-MIB in 802.1AB-2009/Cor 2-2015 (section 4.1); two ranges corrected |
-| IEEE 802.1AB-2016 | 9.2 | Shutdown LLDPDU (TTL = 0) on admin disable / port down | lldp-core `Port::tx_shutdown` | `port::admin_disable_sends_shutdown_and_waits_reinit_delay`, `agent_shutdown_sends_ttl_zero_and_clears`, `runtime::driver_transmits_receives_and_shuts_down` | Implemented, unit tested |
-| IEEE 802.1AB-2016 | 9.2 | Receive validation and discard rules; too-many-neighbors handling | lldp-codec, lldp-core `NeighborTable` | `port::too_many_neighbors_drops_newest`, `malformed_frames_are_counted_not_fatal`, `ttl_zero_removes_immediately` | Implemented, unit tested |
-| IEEE 802.1AB-2016 | 10 / 11 | Statistics counters (`lldpStatsRxPortFramesTotal`, `...FramesDiscardedTotal`, `...FramesErrors`, `...TLVsDiscardedTotal`, `...TLVsUnrecognizedTotal`, `...AgeoutsTotal`, `lldpStatsTxPortFramesTotal`, etc.) | lldp-core `PortStats` | `port::*` assertions on `stats()` | Implemented, unit tested |
+| IEEE 802.1AB-2016 | 8.6 | Organizationally Specific TLV format (type 127, OUI, subtype) | lldp-codec `org` | `lldpdu::org_tlv_too_short_rejected`, `org::*`, fuzz `org_tlv_parse` | Implemented, unit tested; lab pending |
+| IEEE 802.1AB-2016 | 9.2 | Transmit, transmit-timer, and receive state machines | lldp-core `port::Port` | `port::link_up_starts_fast_transmission_then_normal_interval`, `receive_adds_updates_and_expires_neighbors`, `new_neighbor_triggers_fast_start`, `second_new_neighbor_does_not_extend_a_fast_period`, `local_change_sends_at_once_and_starts_a_fast_period` | Checked against Figures 9-1 to 9-3; differences in section 4.1 |
+| IEEE 802.1AB-2016 | 9.2.5 | Timer parameters: msgTxInterval (default 30), msgTxHold (default 4), msgFastTx (default 1), txFastInit (default 4), txCreditMax (default 5), reinitDelay (default 2) | lldp-core `TimerParams`, lldp-config | `port::credit_limits_bursts_of_local_changes`, `config::range_violations_are_collected_with_paths` | Defaults and ranges of 9.2.5 (which takes precedence over the MIB ranges, section 4.1) |
+| IEEE 802.1AB-2016 | 9.1.2.2, 9.2.8 | Shutdown LLDPDU (TTL = 0) on admin disable and agent shutdown | lldp-core `Port::tx_shutdown` | `port::admin_disable_sends_shutdown_and_waits_reinit_delay`, `agent_shutdown_sends_ttl_zero_and_clears`, `runtime::driver_transmits_receives_and_shuts_down` | Implemented, unit tested |
+| IEEE 802.1AB-2016 | 9.2.7.7, 9.2.9 | Receive validation and discard rules; too-many-neighbors handling | lldp-codec, lldp-core `NeighborTable` | `port::too_many_neighbors_drops_newest`, `malformed_frames_are_counted_not_fatal`, `a_discarded_tlv_counts_the_frame_as_in_error_but_keeps_it`, `ttl_zero_removes_immediately` | Implemented, unit tested |
+| IEEE 802.1AB-2016 | 9.2.6, 10.5.2 | Statistics counters (`lldpStatsRxPortFramesTotal`, `...FramesDiscardedTotal`, `...FramesErrors`, `...TLVsDiscardedTotal`, `...TLVsUnrecognizedTotal`, `...AgeoutsTotal`, `lldpStatsTxPortFramesTotal`, etc.) | lldp-core `PortStats` | `port::*` assertions on `stats()`, `lldpdu_that_does_not_fit_is_sent_without_some_optional_tlvs` | Implemented, unit tested |
 
-### 4.1 Checked against IEEE Std 802.1AB-2009/Cor 2-2015
+### 4.1 Checked against IEEE Std 802.1AB-2016
 
-Checked 2026-10-10. This corrigendum is not the 2016 base standard. It
-contains the corrected transmit figures (9-1, 9-3), the MIB cross-reference
-(Table 11-2), and the LLDP-V2-MIB (11.5.2). The 2016 revision could not be
-compared, so clause numbers here are those of 2009 as corrected.
+Checked 2026-10-10 against the published text: clauses 5 to 10, the MIB
+cross-reference (Table 11-2), and the LLDP-V2-MIB (11.5.2). A first pass
+the same day used IEEE Std 802.1AB-2009/Cor 2-2015, which the 2016 revision
+incorporates. The changes that followed are unit tested. A dev build was
+run against the Cisco switch afterwards: its LLDPDU was accepted with no
+frame error and no TLV discarded or unrecognized, decoded as before, and a
+configuration reload produced 5 LLDPDUs (one at once and 4 at 1 s
+intervals), then none until the normal interval. The error paths were not
+exercised on the wire.
 
-Confirmed:
+Confirmed as implemented:
 
-- TTL = min(65535, msgTxInterval x msgTxHold + 1) (Figure 9-1, `TX_IDLE`;
-  MIB example 30 x 4 gives 121).
+- Addressing (7.1 to 7.4): the three group addresses of Table 7-1, the
+  port's own MAC as source, EtherType 88-CC. An end station must support
+  the nearest bridge address; the other two are recommended (Table 7-2).
+- LLDPDU format (8.2): Chassis ID, Port ID, Time To Live first and in that
+  order, optional TLVs in any order, End Of LLDPDU optional and last,
+  at most 1500 octets.
+- TLV format (8.4): 7-bit type, 9-bit length, type values of Table 8-1.
+- Chassis ID and Port ID subtypes (Tables 8-2, 8-3), 1 to 255 octets.
+- System capability bits (Table 8-4), Management Address layout (Figure
+  8-11: address 1 to 31 octets, numbering subtypes 1 to 3, OID 0 to 128
+  octets), organizationally specific TLV layout (Figure 8-12).
+- TTL = min(65535, msgTxInterval x msgTxHold + 1) (9.2.5.22).
 - Defaults: msgTxInterval 30, msgTxHold 4, reinitDelay 2, txCreditMax 5,
-  msgFastTx 1, txFastInit 4.
-- Ranges: reinitDelay 1 to 10, txCreditMax 1 to 100, msgFastTx 1 to 3600,
-  txFastInit 1 to 8.
-- A fast period is txFastInit LLDPDUs one msgFastTx apart: the first at
-  once, then the normal interval after the last (Figure 9-3).
-- txCredit starts at txCreditMax, gains one per second, and one is spent
-  per LLDPDU; no LLDPDU is sent at zero credit.
-- A shutdown LLDPDU is sent when adminStatus leaves a transmitting state,
-  then reinitDelay passes before transmission restarts; none is sent when
-  the port goes down.
-- Unrecognized TLV types are 9 to 126, and their value is kept.
-- Clause numbers (Table 11-2): adminStatus 9.2.5.1, msgFastTx 9.2.5.5,
-  msgTxHold 9.2.5.6, msgTxInterval 9.2.5.7, reinitDelay 9.2.5.10,
-  tooManyNeighbors 9.2.5.15, txCreditMax 9.2.5.17, txFastInit 9.2.5.19;
-  statistics 9.2.6.1 to 9.2.6.8; LLDPDU validation 9.2.7.7.1; transmit
-  state machine 9.2.8; transmit timer state machine 9.2.10; Chassis ID
-  8.5.2.2 and 8.5.2.3, Port ID 8.5.3.2 and 8.5.3.3, Port Description
-  8.5.5.2, System Name 8.5.6.2, System Description 8.5.7.2, System
-  Capabilities 8.5.8.1 and 8.5.8.2, Management Address 8.5.9.2 to 8.5.9.8,
-  organizationally specific TLV 8.6.1.3 to 8.6.1.5.
+  msgFastTx 1, txFastInit 4 (9.2.5).
+- Transmit and transmit timer state machines (Figures 9-1, 9-3): a fast
+  period is txFastInit LLDPDUs one msgFastTx apart; txCredit starts at
+  txCreditMax, gains one per second, and one is spent per LLDPDU; a
+  shutdown LLDPDU (mandatory TLVs, TTL 0) is sent when adminStatus leaves
+  a transmitting state, then reinitDelay passes; none is sent when the
+  port goes down.
+- Receive (Figure 9-2, 9.2.7.7): missing, misordered, or duplicated
+  mandatory TLVs and identifier TLVs outside 2 to 256 octets discard the
+  LLDPDU; TTL 0 deletes the neighbor; unrecognized TLV types 9 to 126 and
+  unrecognized organizationally specific TLVs are kept; octets after the
+  End TLV are ignored; a full table drops the new neighbor (one of the
+  options of 9.1.4) and does not start a fast period (9.1.1).
+- Clause numbers in the matrix above and in code comments.
 
 Corrected as a result:
 
-- msgTxInterval range was 1 to 3600; it is 5 to 32768.
-- msgTxHold range was 1 to 100; it is 2 to 10.
-- A new neighbor arriving during a fast period restarted the period; the
-  figure starts one only when txFast is zero.
-- An LLDPDU sent for a local change used up one of the fast period's
-  LLDPDUs; in the figure only a timer expiry or a new neighbor does.
+- A local change now starts a fast period: one LLDPDU at once, then
+  txFastInit more (9.2.7.8). It sent a single LLDPDU.
+- A new neighbor arriving during a fast period restarted the period; one
+  starts only when txFast is zero (Figure 9-3).
+- txCreditMax range was 1 to 100; 9.2.5.17 gives 1 to 10.
+- Chassis ID and Port ID values were checked against their subtype (a MAC
+  subtype had to be 6 octets) and the LLDPDU discarded otherwise. The
+  standard checks only the length; such values are now accepted and shown
+  as hex.
+- A Time To Live TLV longer than 2 octets discarded the LLDPDU. The first
+  two octets are now used (9.2.7.7.1 c).
+- Optional TLVs of a shutdown LLDPDU were validated, so an error in one
+  could discard it. Validation now stops at TTL 0 (9.2.7.7.1 c).
+- An optional TLV running past the end of the frame discarded the LLDPDU.
+  Only that TLV is discarded now (9.2.7.7.2 e).
+- A System Capabilities or organizationally specific TLV shorter than its
+  fields was discarded alone. It now discards the LLDPDU (9.2.7.7.2 b). A
+  System Capabilities TLV longer than 4 octets was discarded; the extra
+  octets are now ignored (6.6.1).
+- A System Capabilities TLV with a capability enabled but not supported
+  was accepted. It is now discarded (8.5.8.3).
+- A Management Address TLV whose length does not match its length fields
+  now also ends processing of the LLDPDU, keeping the TLVs before it
+  (8.5.9.9 f). The address could be at most 30 octets; it is 31.
+- Counters: frames in counted only valid LLDPDUs and now counts every
+  LLDP frame received (9.2.6.4); frames in error now includes LLDPDUs in
+  which only a TLV was discarded (9.2.7.7.2); TLVs unrecognized now
+  includes organizationally specific TLVs with no decoder (9.2.7.7.3); a
+  frame to an address that is not an LLDP address is no longer counted as
+  discarded (7.4).
+- An LLDPDU too large for the frame was not sent at all. It is now sent
+  with as many optional TLVs as fit and counted in `lldpduLengthErrors`
+  (9.2.6.8, 9.2.7.2).
+- With `bridge_capability`, Station Only was advertised together with
+  Bridge. Bridge is now advertised alone (Table 8-4, footnote).
 
-Deliberate differences from the figures:
+Where the standard disagrees with itself, and what was chosen:
+
+- Ranges. Clause 9.2.5 gives msgTxInterval 1 to 3600, msgTxHold 1 to 100,
+  txCreditMax 1 to 10; the MIB gives 5 to 32768, 2 to 10, and 1 to 100.
+  11.5.2 says clause 9 takes precedence, so clause 9 is used. reinitDelay
+  has no range in clause 9; the MIB's 1 to 10 is used.
+- 9.2.6.4 counts all LLDP frames received; the MIB object description
+  says valid frames. Clause 9 is used.
+- 9.2.7.7.2 b discards an LLDPDU holding a TLV shorter than its fields,
+  while 8.5.9.9 f says a Management Address TLV of incorrect length is
+  ignored and processing of the LLDPDU terminated. The second is read as:
+  stop there and keep what was validated.
+
+Deliberate differences:
 
 - A fast period also starts when a port starts transmitting (link up,
   admin enable). In Figure 9-3 initialization sets txFast to zero, so the
   standard sends one LLDPDU and then waits msgTxInterval. Decision I4
   called this standard behaviour; it is an addition.
+- Neighbors are deleted when the link goes down. In Figure 9-2 and 9.1.6
+  they are kept while the port is down until they age out, and deleted
+  when it comes back. A workstation should not show the switch port of a
+  pulled cable.
 - The re-advertise after the `ms_lldp` unbind and after resume from sleep
-  has no counterpart in the standard.
+  is not in the standard; it acts like a local change.
 - txTTR is restarted when the LLDPDU is sent, not when it is signalled, so
   an LLDPDU delayed by zero credit pushes the next one back.
+- A frame carrying one 802.1Q tag is accepted.
+- An IPv4 or IPv6 management address of the wrong length for its family
+  is discarded; the standard defines no such error.
+- LLDPDUs for all three group addresses are received by one agent per
+  port, and the address is part of the neighbor's identity. The standard
+  models one agent per address (6.7).
+- Counters are 64-bit and saturate; 9.2.6 specifies 32-bit.
 
-Not implemented: the `lldpduLengthErrors` counter (9.2.6.8).
+Not implemented:
 
-Still unverified because this document does not contain them: destination
-addresses (7.4), LLDPDU and TLV formats (8.2 to 8.6), the receive state
-machine and validation rules (9.2.7, 9.2.9), and the 802.1Q, 802.3, and
-TIA-1057 TLVs.
+- The tooManyNeighbors variable and timer (9.1.4, 9.2.7.7.5). The drop is
+  counted and logged (event 1304).
+- Recommendations: a Management Address TLV in every LLDPDU, the MAC
+  address when no other is available (8.5.9.4, 8.5.9.9); transmission to
+  the nearest non-TPMR and nearest customer bridge addresses (Table 7-2);
+  staggered transmission across ports (9.1.1); tick jitter on shared
+  media (9.2.2).
+- The SNMP MIB (clause 11). Storage and retrieval equivalent to 10.1 is
+  provided over the IPC pipe (5.3 n).
+
+Still unverified: the 802.1Q Annex D, 802.3 Clause 79, and TIA-1057 TLVs
+of section 2. 802.1AB-2016 does not contain them.
 
 ## 5. Lab validation
 

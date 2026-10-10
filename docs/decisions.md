@@ -182,7 +182,7 @@ Sections A-H: the owner accepted the recommendations as written.
 ### I4. Fast-start on link up
 - Recommendation: implement 802.1AB fast transmission (txFastInit = 4 frames at msgFastTx = 1 s) on link up, resume from sleep, and admin enable. Standard behavior, no decision needed unless objected to.
 - Decision: no objection; implement.
-- Note 2026-10-10: Figure 9-3 of 802.1AB-2009/Cor 2-2015 starts a fast period only for a new neighbor, so fast start on link up, resume, and admin enable is an addition of this agent, not standard behaviour. The decision stands.
+- Note 2026-10-10: 802.1AB-2016 starts a fast period for a new neighbor (Figure 9-3) and for a local change (9.2.7.8), not when a port starts transmitting, so fast start on link up, resume, and admin enable is an addition of this agent, not standard behaviour. The decision stands.
 
 ### I5. Lab hardware for interoperability
 - Need: at least one Cisco IOS-XE and one Juniper Junos switch, a Windows 11 x64 machine, a Windows on ARM device, a Server 2022/2025 VM, an Intel NIC with FW-LLDP capability if available.

@@ -19,11 +19,11 @@ overrides the file.
 
 | Key | Default | IEEE name and range |
 | --- | --- | --- |
-| `transmit_interval` | 30 | `msgTxInterval`, 5 to 32768 s |
-| `hold_multiplier` | 4 | `msgTxHold`, 2 to 10. TTL = interval x hold + 1 (121 by default). |
+| `transmit_interval` | 30 | `msgTxInterval`, 1 to 3600 s |
+| `hold_multiplier` | 4 | `msgTxHold`, 1 to 100. TTL = interval x hold + 1 (121 by default). |
 | `fast_tx_interval` | 1 | `msgFastTx`, 1 to 3600 s |
 | `fast_tx_count` | 4 | `txFastInit`, 1 to 8 |
-| `tx_credit_max` | 5 | `txCreditMax`, 1 to 100 |
+| `tx_credit_max` | 5 | `txCreditMax`, 1 to 10 |
 | `reinit_delay` | 2 | `reinitDelay`, 1 to 10 s |
 | `max_neighbors_per_interface` | 8 | 1 to 64 |
 | `chassis_id.source` | `hostname` | `hostname`, `smbios_uuid`, `custom` (locally assigned subtype); `mac` (MAC subtype; changes when docking) |
@@ -44,7 +44,7 @@ overrides the file.
 | `os_version` | `true` | Append version, build, and architecture |
 | `hardware` | `false` | Append manufacturer and model from SMBIOS |
 | `system_capabilities` | `true` | System Capabilities TLV with Station Only |
-| `bridge_capability` | `false` | Also set Bridge when a Hyper-V vSwitch or network bridge exists |
+| `bridge_capability` | `false` | Advertise Bridge instead of Station Only when a Hyper-V vSwitch or network bridge exists |
 | `management_address` | `true` | Management Address TLVs |
 
 ### `lldp.management_addresses`
