@@ -168,6 +168,12 @@ Sections A-H: the owner accepted the recommendations as written.
 - Options: LocalSystem with restricted privileges; virtual service account.
 - Recommendation: LocalSystem + restricted service SID + minimal privilege list in v1, because it works under Npcap Admin-only mode. Revisit after lab test.
 - Decision: **LocalSystem with restricted SID and minimal privileges in v1.**
+- Lab result 2026-10-09: the restricted SID type does not work. Its
+  write-restricted token is not an administrator to Npcap's Admin-only mode
+  (the adapter open fails asking for the elevation helper), and the service
+  is denied further instances of its own pipe. The service now uses the
+  unrestricted service SID type; LocalSystem and the single
+  `SeChangeNotifyPrivilege` are unchanged and were confirmed in the token.
 
 ### I3. Code-signing certificate source
 - Options: organizational EV certificate; Azure Trusted Signing.

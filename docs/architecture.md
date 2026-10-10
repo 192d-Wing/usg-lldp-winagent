@@ -27,7 +27,7 @@ PLAN.MD Section 6.5.
 ## 2. Process model
 
 One service process, `winlldp-service.exe`, running as LocalSystem with a
-restricted service SID and minimal privileges. One Tokio multi-thread
+service SID (unrestricted type) and minimal privileges. One Tokio multi-thread
 runtime with a small worker count (2). No thread-per-interface: each
 interface is a Tokio task that awaits frames from its packet channel and
 timer ticks.

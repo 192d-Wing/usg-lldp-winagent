@@ -17,7 +17,7 @@ The MSI installs:
 - `%ProgramFiles%\WinLLDP\winlldp-service.exe`, `winlldp.exe`, `LICENSE.txt`, and adds the folder to the system `PATH`.
 - `%ProgramData%\WinLLDP\config.yaml` (never overwritten on upgrade).
 - `%ProgramFiles%\WindowsPowerShell\Modules\WinLldp\` (the PowerShell module, visible to both Windows PowerShell 5.1 and PowerShell 7).
-- The `WinLLDP` service: automatic start, LocalSystem, restricted service SID, `SeChangeNotifyPrivilege` only, restart on failure.
+- The `WinLLDP` service: automatic start, LocalSystem, service SID (unrestricted), `SeChangeNotifyPrivilege` only, restart on failure.
 - The `WinLLDP` Event Log source.
 
 ## Silent install, upgrade, uninstall
