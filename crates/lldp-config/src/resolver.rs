@@ -142,12 +142,17 @@ fn build_system(cfg: &Config, facts: &SystemFacts) -> LocalSystem {
     });
 
     let capabilities = lldp.advertise.system_capabilities.then(|| {
-        let mut c = SystemCapabilities::STATION_ONLY;
+        // Station Only is for a system with no other capability (802.1AB
+        // Table 8-4, footnote), so a bridge advertises Bridge alone.
         if lldp.advertise.bridge_capability && facts.has_bridge {
-            c.supported |= lldp_codec::Capability::Bridge.bit();
-            c.enabled |= lldp_codec::Capability::Bridge.bit();
+            let bridge = lldp_codec::Capability::Bridge.bit();
+            SystemCapabilities {
+                supported: bridge,
+                enabled: bridge,
+            }
+        } else {
+            SystemCapabilities::STATION_ONLY
         }
-        c
     });
 
     LocalSystem {
