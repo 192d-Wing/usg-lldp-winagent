@@ -68,6 +68,28 @@ impl PacketIo for UnavailableBackend {
 struct MsLldpHooks {
     enabled: bool,
     sink: mpsc::UnboundedSender<SinkEvent>,
+    /// Binding changes still running, awaited at shutdown so the restore
+    /// is logged before the service reports stopped.
+    pending: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+}
+
+impl MsLldpHooks {
+    fn track(&self, task: tokio::task::JoinHandle<()>) {
+        if let Ok(mut p) = self.pending.lock() {
+            p.retain(|t| !t.is_finished());
+            p.push(task);
+        }
+    }
+
+    async fn drain(&self) {
+        let tasks = self
+            .pending
+            .lock()
+            .map_or_else(|_| Vec::new(), |mut p| std::mem::take(&mut *p));
+        for t in tasks {
+            let _ = t.await;
+        }
+    }
 }
 
 impl PortHooks for MsLldpHooks {
@@ -78,7 +100,7 @@ impl PortHooks for MsLldpHooks {
         let guid = iface.guid.clone();
         let alias = iface.alias.clone();
         let sink = self.sink.clone();
-        tokio::task::spawn_blocking(move || {
+        self.track(tokio::task::spawn_blocking(move || {
             let _ = sink.send(match lldp_windows::mslldp::disable_and_record(&guid) {
                 Ok(()) => SinkEvent::MsLldp {
                     alias,
@@ -91,7 +113,7 @@ impl PortHooks for MsLldpHooks {
                     error: Some(e.to_string()),
                 },
             });
-        });
+        }));
     }
 
     fn tx_stopped(&self, iface: &InterfaceInfo) {
@@ -101,7 +123,7 @@ impl PortHooks for MsLldpHooks {
         let guid = iface.guid.clone();
         let alias = iface.alias.clone();
         let sink = self.sink.clone();
-        tokio::task::spawn_blocking(move || {
+        self.track(tokio::task::spawn_blocking(move || {
             let _ = sink.send(match lldp_windows::mslldp::restore(&guid) {
                 Ok(()) => SinkEvent::MsLldp {
                     alias,
@@ -114,7 +136,7 @@ impl PortHooks for MsLldpHooks {
                     error: Some(e.to_string()),
                 },
             });
-        });
+        }));
     }
 }
 
@@ -306,8 +328,14 @@ async fn run(
     let hooks = Arc::new(MsLldpHooks {
         enabled: config.windows.manage_mslldp_binding,
         sink: sink_tx.clone(),
+        pending: std::sync::Mutex::new(Vec::new()),
     });
-    let agent = Agent::new(backend, Arc::new(resolver.clone()), hooks, agent_ev_tx);
+    let agent = Agent::new(
+        backend,
+        Arc::new(resolver.clone()),
+        Arc::clone(&hooks) as Arc<dyn PortHooks>,
+        agent_ev_tx,
+    );
     let state = Arc::new(ServiceState {
         agent: Mutex::new(agent),
         resolver: resolver.clone(),
@@ -403,6 +431,7 @@ async fn run(
 
     ipc_stop.notify_waiters();
     state.agent.lock().await.shutdown().await;
+    hooks.drain().await;
     let _ = sink_tx.send(SinkEvent::Stopped);
     tokio::time::sleep(Duration::from_millis(200)).await; // let the sink flush
     Ok(())
