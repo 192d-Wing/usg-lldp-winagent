@@ -149,7 +149,7 @@ closing the channel.
 | System Name | FQDN if domain-joined else hostname; config override; privacy toggle | `GetComputerNameExW(ComputerNameDnsFullyQualified)` |
 | System Description | `"Microsoft Windows 11 Enterprise 24H2 (x64)"` from `RtlGetVersion` + registry `ProductName`/`DisplayVersion`; optional manufacturer/model from SMBIOS | Each element individually toggleable. |
 | Capabilities | `StationOnly` set and enabled. `Bridge` only if a Hyper-V vSwitch or network bridge exists *and* config `advertise_bridge: true`. Never `Router`. | |
-| Management Address | Per port: IPv6 GUA, then ULA, then IPv4 non-APIPA. Skip temporary (`SuffixOrigin == Random`), link-local, deprecated, tentative. Interface numbering = ifIndex (RFC 2863). | Config can pin addresses or disable families. |
+| Management Address | Per port: IPv6 GUA, then ULA, then IPv4 non-APIPA, with at least one slot per address family when the limit is 2 or more. Skip temporary (`SuffixOrigin == Random`), link-local, deprecated, tentative. Interface numbering = ifIndex (RFC 2863). | Config can pin addresses or disable families. |
 
 ## 7. Configuration
 
