@@ -51,7 +51,10 @@ overrides the file.
 
 Selection order: pinned addresses if any; otherwise IPv6 global, IPv6
 unique local, IPv4, then link-local if allowed. Temporary (RFC 8981) and
-tentative addresses are skipped unless allowed.
+tentative addresses are skipped unless allowed. When `max_per_interface` is
+2 or more, IPv4 and IPv6 each keep at least one slot if they have a usable
+address, so a host with several IPv6 addresses still advertises its IPv4
+address.
 
 | Key | Default |
 | --- | --- |

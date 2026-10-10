@@ -75,22 +75,53 @@ Clause numbers below reflect 802.1AB-2016 as best known; every row is
 | IEEE 802.1AB-2016 | 9.2 | Receive validation and discard rules; too-many-neighbors handling | lldp-codec, lldp-core `NeighborTable` | `port::too_many_neighbors_drops_newest`, `malformed_frames_are_counted_not_fatal`, `ttl_zero_removes_immediately` | Implemented, unit tested |
 | IEEE 802.1AB-2016 | 10 / 11 | Statistics counters (`lldpStatsRxPortFramesTotal`, `...FramesDiscardedTotal`, `...FramesErrors`, `...TLVsDiscardedTotal`, `...TLVsUnrecognizedTotal`, `...AgeoutsTotal`, `lldpStatsTxPortFramesTotal`, etc.) | lldp-core `PortStats` | `port::*` assertions on `stats()` | Implemented, unit tested |
 
-## 5. Lab validation (pending)
+## 5. Lab validation (in progress)
 
-Not yet executed; requires the Cisco IOS-XE switch and the Windows 11
-workstation. Record results here when done:
+Started 2026-10-09 on a Windows 11 Enterprise 25H2 (build 26200) x64
+workstation, Intel I219-LM, Npcap 1.88, attached to a Cisco C9200CX
+(IOS-XE 26.01.1) port Gi1/0/10. The runs so far were a non-elevated
+`--console` run with a parallel dumpcap capture, so everything that needs
+elevation or the switch CLI is still pending.
 
 | Check | Result |
 | --- | --- |
-| Switch `show lldp neighbors detail` shows the workstation with locally assigned chassis ID, MAC port ID, system name, capabilities S, TTL 121 | pending |
-| Exactly one neighbor per port (MsLldp unbound) | pending |
-| `winlldp neighbors` shows switch name, port, management addresses, PVID, MAC/PHY | pending |
-| Wireshark: TLV order, lengths, values as in docs/troubleshooting.md | pending |
-| Shutdown LLDPDU on service stop clears the switch entry | pending |
+| Switch `show lldp neighbors detail` shows the workstation with locally assigned chassis ID, MAC port ID, system name, capabilities S, TTL 121 | pass 2026-10-09 on Gi1/0/10: chassis ID `OOPLL-PNT010`, port ID `fc4c.eac9.2845`, port description, system name, system description "Microsoft Windows 11 Enterprise 25H2 (build 26200) x64", capabilities S / S, two IPv6 management addresses, time remaining 107 s (consistent with TTL 121; the 121 itself was confirmed in the capture) |
+| Exactly one neighbor per port (MsLldp unbound) | partial 2026-10-09: elevated, `ms_lldp` is unbound at start (event 1400) and bound again after stop with the recorded state cleared; non-elevated, the unbind fails cleanly with event 1401 and the binding is untouched. Still to confirm on the switch that only one neighbor is listed |
+| `winlldp neighbors` shows switch name, port, management addresses, PVID, MAC/PHY | pass 2026-10-09: system name, port ID `Gi1/0/10`, IPv4 and IPv6 management addresses, PVID 250, MAC/PHY (MAU type 30), capabilities bridge and router |
+| Wireshark: TLV order, lengths, values as in docs/troubleshooting.md | pass 2026-10-09 for transmit: destination 01:80:c2:00:00:0e, 226-byte frame, TLV types 1,2,3,4,5,6,7,8,8,0, chassis ID subtype 7, port ID subtype 3, TTL 121, Station Only, nothing flagged malformed. Both management addresses were IPv6 (see findings) |
+| Fast transmission on link up and on a new neighbor (decision I4) | pass 2026-10-09: 4 frames 1 s apart at start, 4 more starting 0.2 ms after the switch's first LLDPDU, then the 30 s interval |
+| Shutdown LLDPDU on service stop clears the switch entry | partial 2026-10-09: a real Ctrl+C in `--console` mode exits cleanly and logs event 1001 (the earlier scripted Ctrl+C never reached the process). On a repeat elevated run, tshark showed the TTL 0 frame at Ctrl+C and the switch entry cleared immediately: pass for console mode. (A first run was reported as not clearing straight away and was not captured.) The same check on `Stop-Service` is still pending |
 | Dock / undock, cable pull, sleep / resume handled without restart | pending |
 | Config reload without restart | pending |
 | Service token holds only SeChangeNotifyPrivilege; restricted SID | pending |
 | Silent MSI install, upgrade, uninstall with logs | pending |
+
+Findings from the first run, fixed:
+
+- `GetIfTable2` rows for NDIS filter modules (WFP, QoS, Npcap) were listed
+  as interfaces (39 instead of 14). They are now skipped.
+- An unplugged USB NIC (operational status not present) was opened on every
+  start and logged event 1202. Not-present adapters are now skipped.
+- System Description said "Windows 10" on Windows 11 because the registry
+  `ProductName` still does. Corrected from the build number.
+- `winlldp neighbors` failed with `missing field ttl` once a neighbor
+  existed: `NeighborView` had a `ttl` member that collided with the
+  flattened LLDPDU's. The duplicate was removed.
+- A multi-line System Description (Cisco IOS) was shown as hex. Line breaks
+  are now kept.
+- The `ms_lldp` restore on stop was not logged because the service reported
+  stopped before the binding change finished. It now waits for it.
+- With two IPv6 global addresses and `max_per_interface: 2`, the IPv4
+  address was not advertised. Each address family now keeps at least one
+  slot when the limit is 2 or more (not yet re-checked on the switch).
+
+Findings still open:
+
+- `backend.open()` blocks under the agent lock. In two of the non-elevated
+  runs it took 14 to 16 s and IPC calls waited that long; in a third it
+  took about 1 s. The cause of the slow opens is not established, and it
+  has not been measured under LocalSystem.
+- `winlldp diagnostics` exits 0 when a check reports FAIL.
 
 ## 6. Explicitly out of scope
 

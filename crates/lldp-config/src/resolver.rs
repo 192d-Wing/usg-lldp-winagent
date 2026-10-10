@@ -162,7 +162,8 @@ fn build_system(cfg: &Config, facts: &SystemFacts) -> LocalSystem {
 /// Selects management addresses for an interface per the configured
 /// rules: pinned addresses win; otherwise IPv6 global, then IPv6 unique
 /// local, then IPv4, skipping temporary, link-local, and non-preferred
-/// addresses unless allowed, up to `max_per_interface`.
+/// addresses unless allowed, up to `max_per_interface`. When the limit is
+/// two or more, each family with a usable address keeps at least one slot.
 pub fn select_management_addresses(cfg: &Config, iface: &InterfaceInfo) -> Vec<ManagementAddress> {
     let m = &cfg.lldp.management_addresses;
     if !cfg.lldp.advertise.management_address || m.max_per_interface == 0 {
@@ -220,11 +221,23 @@ pub fn select_management_addresses(cfg: &Config, iface: &InterfaceInfo) -> Vec<M
         .collect();
     ranked.sort();
     ranked.dedup();
-    ranked
-        .into_iter()
-        .map(|(_, a)| mk(a))
-        .take(m.max_per_interface)
-        .collect()
+    let mut picked: Vec<(u8, IpAddr)> = ranked.iter().copied().take(m.max_per_interface).collect();
+    // With room for two or more, each address family that has a candidate
+    // gets at least one slot, so several IPv6 addresses do not crowd out
+    // the IPv4 address (or the reverse).
+    if m.max_per_interface >= 2 {
+        for v4 in [false, true] {
+            if picked.iter().any(|(_, a)| a.is_ipv4() == v4) {
+                continue;
+            }
+            if let Some(best) = ranked.iter().find(|(_, a)| a.is_ipv4() == v4) {
+                picked.pop();
+                picked.push(*best);
+            }
+        }
+        picked.sort();
+    }
+    picked.into_iter().map(|(_, a)| mk(a)).collect()
 }
 
 impl Resolver for ConfigResolver {

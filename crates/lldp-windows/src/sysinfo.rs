@@ -16,7 +16,8 @@ pub struct SystemInfo {
     pub hostname: String,
     /// Fully qualified DNS name; equals `hostname` when not domain-joined.
     pub fqdn: String,
-    /// Registry `ProductName`, for example "Windows 11 Enterprise".
+    /// Registry `ProductName` corrected for Windows 11, for example
+    /// "Windows 11 Enterprise".
     pub product_name: String,
     /// Registry `DisplayVersion`, for example "24H2".
     pub display_version: String,
@@ -38,24 +39,28 @@ impl SystemInfo {
     pub fn collect() -> Self {
         let (hostname, fqdn) = names();
         let (manufacturer, model, smbios_uuid) = smbios();
+        let build = reg_sz(
+            "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+            "CurrentBuild",
+        )
+        .unwrap_or_default();
         Self {
             hostname,
             fqdn,
-            product_name: reg_sz(
-                "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
-                "ProductName",
-            )
-            .unwrap_or_default(),
+            product_name: crate::parse::normalize_product_name(
+                &reg_sz(
+                    "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
+                    "ProductName",
+                )
+                .unwrap_or_default(),
+                &build,
+            ),
             display_version: reg_sz(
                 "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
                 "DisplayVersion",
             )
             .unwrap_or_default(),
-            build: reg_sz(
-                "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion",
-                "CurrentBuild",
-            )
-            .unwrap_or_default(),
+            build,
             architecture: architecture(),
             manufacturer,
             model,

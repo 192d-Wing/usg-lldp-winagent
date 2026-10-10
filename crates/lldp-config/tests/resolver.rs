@@ -93,8 +93,8 @@ fn defaults_advertise_fqdn_os_and_station_only() {
         .collect();
     assert_eq!(
         addrs,
-        ["2001:db8:10::5", "fd00::5"],
-        "GUA first, then ULA, max 2; temporary, link-local, and tentative skipped"
+        ["2001:db8:10::5", "10.10.10.50"],
+        "GUA first, one slot per family, max 2; temporary, link-local, and tentative skipped"
     );
     assert_eq!(d.local.management_addresses[0].interface_number, 12);
 }
@@ -171,6 +171,19 @@ fn management_address_rules() {
         .map(|m| m.address.to_string())
         .collect();
     assert_eq!(addrs, ["10.10.10.50"]);
+
+    // Default limit of two: one slot per family rather than two IPv6.
+    let select = |max: usize| -> Vec<String> {
+        let mut c = Config::default();
+        c.lldp.management_addresses.max_per_interface = max;
+        lldp_config::select_management_addresses(&c, &iface())
+            .iter()
+            .map(|m| m.address.to_string())
+            .collect()
+    };
+    assert_eq!(select(2), ["2001:db8:10::5", "10.10.10.50"]);
+    assert_eq!(select(3), ["2001:db8:10::5", "fd00::5", "10.10.10.50"]);
+    assert_eq!(select(1), ["2001:db8:10::5"]);
 
     let mut c = Config::default();
     c.lldp.management_addresses.pinned =

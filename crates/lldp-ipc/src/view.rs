@@ -205,9 +205,7 @@ pub struct NeighborView {
     pub scope: String,
     /// Source MAC of the last frame.
     pub source_mac: String,
-    /// Advertised TTL.
-    pub ttl: u16,
-    /// Seconds until expiry.
+    /// Seconds until expiry. The advertised TTL is `lldpdu.ttl`.
     pub ttl_remaining: u64,
     /// Unix time first seen.
     pub first_seen_unix: u64,
@@ -310,6 +308,20 @@ fn text(b: &[u8]) -> String {
     lossy_text(b)
 }
 
+/// Like [`text`], but keeps line breaks and tabs: Cisco IOS sends a
+/// multi-line System Description.
+fn multiline_text(b: &[u8]) -> String {
+    match core::str::from_utf8(b) {
+        Ok(s)
+            if s.chars()
+                .all(|c| !c.is_control() || matches!(c, '\n' | '\r' | '\t')) =>
+        {
+            s.replace("\r\n", "\n").trim_end().to_owned()
+        }
+        _ => lossy_text(b),
+    }
+}
+
 fn cap_name(c: Capability) -> &'static str {
     match c {
         Capability::Other => "other",
@@ -365,7 +377,7 @@ impl LldpduView {
             ttl: pdu.ttl,
             port_description: pdu.port_description().map(text),
             system_name: pdu.system_name().map(text),
-            system_description: pdu.system_description().map(text),
+            system_description: pdu.system_description().map(multiline_text),
             capabilities,
             management_addresses: pdu
                 .management_addresses()
@@ -585,7 +597,6 @@ impl NeighborView {
                 }
             },
             source_mac: n.source_mac.to_string(),
-            ttl: n.ttl,
             ttl_remaining: n.remaining_ttl(now).as_secs(),
             first_seen_unix: to_unix(n.first_seen),
             last_seen_unix: to_unix(n.last_seen),

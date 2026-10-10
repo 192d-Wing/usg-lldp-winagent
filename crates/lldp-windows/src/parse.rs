@@ -14,6 +14,18 @@ pub fn parse_npcap_version(s: &str) -> Option<(u32, u32)> {
     Some((major, minor))
 }
 
+/// Corrects the registry `ProductName`, which still reads "Windows 10 ..."
+/// on Windows 11. Client builds from 22000 on are Windows 11.
+pub fn normalize_product_name(product: &str, build: &str) -> String {
+    match (
+        product.strip_prefix("Windows 10"),
+        build.trim().parse::<u32>(),
+    ) {
+        (Some(rest), Ok(b)) if b >= 22_000 => format!("Windows 11{rest}"),
+        _ => product.to_owned(),
+    }
+}
+
 /// Parses the structure table for the first type 1 structure.
 pub fn parse_smbios_type1(table: &[u8]) -> (Option<String>, Option<String>, Option<String>) {
     let mut off = 0usize;
@@ -79,7 +91,27 @@ pub fn parse_smbios_type1(table: &[u8]) -> (Option<String>, Option<String>, Opti
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_npcap_version, parse_smbios_type1};
+    use super::{normalize_product_name, parse_npcap_version, parse_smbios_type1};
+
+    #[test]
+    fn product_name_normalization() {
+        assert_eq!(
+            normalize_product_name("Windows 10 Enterprise", "26200"),
+            "Windows 11 Enterprise"
+        );
+        assert_eq!(
+            normalize_product_name("Windows 10 Enterprise LTSC 2021", "19044"),
+            "Windows 10 Enterprise LTSC 2021"
+        );
+        assert_eq!(
+            normalize_product_name("Windows Server 2025 Datacenter", "26100"),
+            "Windows Server 2025 Datacenter"
+        );
+        assert_eq!(
+            normalize_product_name("Windows 10 Pro", ""),
+            "Windows 10 Pro"
+        );
+    }
 
     #[test]
     fn version_parsing() {

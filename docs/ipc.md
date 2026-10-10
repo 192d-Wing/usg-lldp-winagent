@@ -70,8 +70,8 @@ The authoritative definitions are the `serde` structs in
   interface_number, oid_hex}`, `org_tlvs[] {oui, organization, subtype,
   decoded, data_hex}`, `unknown_tlvs[] {tlv_type, value_hex}`.
 - `Neighbor`: `interface_guid`, `interface_alias`, `scope`, `source_mac`,
-  `ttl`, `ttl_remaining`, `first_seen_unix`, `last_seen_unix`,
-  `expires_unix`, `frames`, plus the `Lldpdu` members.
+  `ttl_remaining`, `first_seen_unix`, `last_seen_unix`, `expires_unix`,
+  `frames`, plus the `Lldpdu` members (`ttl` is the advertised TTL).
 - `LocalAdvertisement`: `interface_guid`, `interface_alias`, `mode`,
   `destination_mac`, `source_mac`, `lldpdu_hex`, plus the `Lldpdu` members.
 - `Statistics`: the `lldpStatsRx/TxPort*` counters plus `rem_inserts`,

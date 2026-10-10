@@ -12,8 +12,8 @@ use std::net::Ipv4Addr;
 use lldp_codec::{ChassisId, Lldpdu, MacAddr, ManagementAddress, PortId, SystemCapabilities, Tlv};
 use lldp_ipc::{
     Caller, ErrorCode, Handler, HandlerFuture, InterfaceModeView, LldpduView, MAX_MESSAGE_LEN,
-    Request, RequestEnvelope, Response, call, dispatch, read_message, serve_connection,
-    write_message,
+    NeighborView, Request, RequestEnvelope, Response, call, dispatch, read_message,
+    serve_connection, write_message,
 };
 use serde_json::{Value, json};
 
@@ -137,6 +137,9 @@ fn lldpdu_view_covers_all_tlvs() {
         120,
     );
     pdu.optional.push(Tlv::SystemName(b"SW".to_vec()));
+    pdu.optional.push(Tlv::SystemDescription(
+        b"Cisco IOS\nCompiled by x\n".to_vec(),
+    ));
     pdu.optional
         .push(Tlv::SystemCapabilities(SystemCapabilities {
             supported: lldp_codec::Capability::Bridge.bit() | lldp_codec::Capability::Router.bit(),
@@ -166,6 +169,10 @@ fn lldpdu_view_covers_all_tlvs() {
     assert_eq!(v.chassis_id.subtype_name, "macaddress");
     assert_eq!(v.port_id.value, "Gi1/0/1");
     assert_eq!(v.system_name.as_deref(), Some("SW"));
+    assert_eq!(
+        v.system_description.as_deref(),
+        Some("Cisco IOS\nCompiled by x")
+    );
     let caps = v.capabilities.clone().unwrap();
     assert_eq!(caps.short, "B");
     assert_eq!(caps.supported, ["bridge", "router"]);
@@ -179,5 +186,40 @@ fn lldpdu_view_covers_all_tlvs() {
     // The view serializes and round-trips.
     let s = serde_json::to_string(&v).unwrap();
     let back: LldpduView = serde_json::from_str(&s).unwrap();
+    assert_eq!(back, v);
+}
+
+#[test]
+fn neighbor_view_round_trips() {
+    let pdu = Lldpdu::new(
+        ChassisId::mac(MacAddr([1, 2, 3, 4, 5, 6])),
+        PortId::interface_name("Gi1/0/1").unwrap(),
+        120,
+    );
+    let now = std::time::Instant::now();
+    let n = lldp_core::Neighbor {
+        msap: lldp_core::Msap {
+            scope: lldp_codec::LldpDestination::NearestBridge,
+            chassis_id: pdu.chassis_id.clone(),
+            port_id: pdu.port_id.clone(),
+        },
+        source_mac: MacAddr([1, 2, 3, 4, 5, 10]),
+        ttl: pdu.ttl,
+        lldpdu: pdu,
+        first_seen: now,
+        last_seen: now,
+        expires_at: now
+            .checked_add(std::time::Duration::from_secs(120))
+            .unwrap(),
+        frames: 1,
+    };
+    let v = NeighborView::from_neighbor("{guid}", "Ethernet", &n, now, 1_791_504_000);
+    assert_eq!(v.ttl_remaining, 120);
+    assert_eq!(v.expires_unix, 1_791_504_120);
+    // The flattened LLDPDU carries the only `ttl` member, so the result the
+    // service sends decodes on the client.
+    let value = serde_json::to_value(&v).unwrap();
+    assert_eq!(value["ttl"], json!(120));
+    let back: NeighborView = serde_json::from_value(value).unwrap();
     assert_eq!(back, v);
 }
